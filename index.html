@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="description" content="Slither Local: an offline Slither.io clone that runs entirely in your browser. Grow by eating, cut snakes off to make them burst, with synthwave soundtrack by the same author. No server, no account, no build step.">
+<meta name="theme-color" content="#050a18">
+<meta property="og:title" content="Slither Local">
+<meta property="og:description" content="Offline Slither.io clone, playable in any browser. Eat, grow, cut off, survive. Original synthwave soundtrack included.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23050a18'/%3E%3Cpath d='M5 24c6 0 6-9 11-9s5 9 11 9' fill='none' stroke='%237bffb0' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>Slither Local</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="flash"></div>
+
+<!-- ---------- HUD ---------- -->
+<div id="hud" class="hidden">
+  <div id="stats">
+    <div class="stat"><span class="k">Length</span><span class="v" id="stat-length">0</span></div>
+    <div id="top">
+      <div class="bar"><div id="top-fill"></div></div>
+      <div class="hint">Best: <span id="top-len">0</span></div>
+    </div>
+    <div class="stat"><span class="k">Kills</span><span class="v" id="stat-kills">0</span></div>
+    <div class="stat"><span class="k">Rank</span><span class="v" id="stat-rank">-</span></div>
+  </div>
+
+  <div id="board-panel">
+    <div class="head">Leaderboard</div>
+    <div id="board"></div>
+  </div>
+
+  <div id="feed"></div>
+
+  <div id="bottom">
+    <canvas id="minimap" width="132" height="132"></canvas>
+    <div id="boostwrap">
+      <div class="lbl">Boost <span>hold click / space</span></div>
+      <div class="bar"><div id="boost-meter"></div></div>
+    </div>
+    <button id="boostbtn">Boost</button>
+  </div>
+
+  <div id="hud-foot">
+    <span>Steer with the mouse</span><span>Hold click to boost</span>
+    <button id="mute" class="ghost">Sound: on</button>
+    <button id="music" class="ghost">Music: on</button>
+    <button id="quit" class="ghost">Quit</button>
+  </div>
+</div>
+
+<!-- ---------- Menu ---------- -->
+<div id="menu">
+  <div class="card">
+    <h1>Slither<span>Local</span></h1>
+    <p class="tag">Grow by eating. Cut a snake off and it bursts — then you eat what is left.
+      Boosting burns your own length, and drops it as food behind you.</p>
+
+    <label class="field">
+      <span>Name</span>
+      <input id="name" maxlength="14" placeholder="Slinky" autocomplete="off">
+    </label>
+
+    <div class="field">
+      <span>Skin</span>
+      <div id="skins"></div>
+    </div>
+
+    <label class="field">
+      <span>Bots</span>
+      <select id="difficulty">
+        <option value="chill">Chill &mdash; forgiving, fewer snakes</option>
+        <option value="classic" selected>Classic &mdash; standard crowd</option>
+        <option value="ruthless">Ruthless &mdash; mean, fast, hungry</option>
+      </select>
+    </label>
+
+    <button id="play">Play</button>
+    <label class="check"><input type="checkbox" id="menu-music" checked> Music &mdash; <i>Neon Drift</i> (synthwave, 92&nbsp;BPM)</label>
+    <ul class="keys">
+      <li><b>Mouse</b> steer</li>
+      <li><b>Click / Space</b> boost</li>
+      <li><b>A &middot; D / &larr; &rarr;</b> steer (no mouse)</li>
+      <li><b>M</b> mute &middot; <b>Esc</b> menu</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ---------- Death ---------- -->
+<div id="dead" class="hidden">
+  <div class="card">
+    <h2 id="dead-title">Eaten</h2>
+    <p id="dead-by"></p>
+    <div class="grid">
+      <div><span class="k">Length</span><b id="dead-length">0</b></div>
+      <div><span class="k">Kills</span><b id="dead-kills">0</b></div>
+      <div><span class="k">Rank</span><b id="dead-rank">-</b></div>
+      <div><span class="k">Survived</span><b id="dead-time">0s</b></div>
+    </div>
+    <button id="again">Play again</button>
+    <p class="small">Camera is following <span id="spec">the snake that got you</span> &mdash; watch how it plays.</p>
+  </div>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/render.js"></script>
+<script src="js/music.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
