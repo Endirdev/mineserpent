@@ -97,7 +97,7 @@
   var pendingDeathCause = null;
   var feedTimers = [];
 
-  var input = { mx: 0, my: 0, boost: false, keyBoost: false, keys: {} };
+  var input = { mx: 0, my: 0, boost: false, keyBoost: false, midBoost: false, keys: {} };
   var touchSeen = false;   // once a finger is about, taps steer only — they must not dig squares
 
   var NAMES = ['Slinky', 'Noodle', 'Rattlesnake', 'Anaconda', 'Boop', 'Zigzag', 'Mamba',
@@ -155,8 +155,10 @@
     if (world && state === 'playing' && me && !me.dead) world.hover = pointerWorld(e);
   });
   canvas.addEventListener('mousedown', function (e) {
-    if (e.button !== 0 || touchSeen) return;   // right click flags; taps only steer
-    // left click now digs the square you aimed at — boosting is space / shift
+    if (touchSeen) return;               // taps steer only: they must not dig squares
+    if (e.button === 1) { input.midBoost = true; return; }   // middle click holds boost
+    if (e.button !== 0) return;          // right click flags, on contextmenu
+    // left click digs the square you aimed at
     var p = pointerWorld(e);
     trySweeper(false, p.x, p.y);
   });
@@ -165,8 +167,13 @@
     var p2 = pointerWorld(e);
     trySweeper(true, p2.x, p2.y);
   });
-  window.addEventListener('mouseup', function () { input.boost = false; });
-  window.addEventListener('blur', function () { input.boost = false; input.keys = {}; });
+  // boost holds per button: letting go of a dig or a flag must not cancel a
+  // boost you are still holding on the middle button
+  window.addEventListener('mouseup', function (e) {
+    if (e.button === 1) input.midBoost = false;
+    else input.boost = false;
+  });
+  window.addEventListener('blur', function () { input.boost = false; input.midBoost = false; input.keys = {}; });
 
   // ------------------------------------------------------------- sweeper
   // Digging is mine to aim: a left click names any square on the board, while the
@@ -416,7 +423,7 @@
       if (input.keys['ArrowLeft'] || input.keys['a']) me.aim = me.angle - 1.4;
       if (input.keys['ArrowRight'] || input.keys['d']) me.aim = me.angle + 1.4;
 
-      var boosting = (input.boost || input.keyBoost) && me.mass > CFG.snake.boostMinMass;
+      var boosting = (input.boost || input.keyBoost || input.midBoost) && me.mass > CFG.snake.boostMinMass;
       me.boost = boosting;
       sfx.boost(boosting);
       if (boosting) sfx.eat();           // the hum is the "eating your own length" sound

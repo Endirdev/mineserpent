@@ -42,7 +42,7 @@ slither-local/
 | Input | Action |
 | --- | --- |
 | Mouse | steer toward the cursor |
-| Space **or** Shift | boost (burns your own length, drops it as food behind you) |
+| Space, Shift **or** middle click | boost (burns your own length, drops it as food behind you) |
 | A / D, arrows | steer without a mouse |
 | Left click | dig **any** grid square on the board |
 | Right click | flag or unflag any grid square |
