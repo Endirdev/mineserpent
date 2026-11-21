@@ -487,6 +487,19 @@
 
   // dev/QA hook: index.html?autostart=1&secs=6 jumps straight into a run
   var qs = new URLSearchParams(location.search);
+
+  // look knobs straight from the URL: index.html?stripeAlpha=0.4&veilAlpha=0.3&headDisc=0
+  var LOOK = window.SlitherRender.LOOK;
+  for (var kL in LOOK) {
+    var vL = qs.get(kL);
+    if (vL === null) continue;
+    if (typeof LOOK[kL] === 'boolean') LOOK[kL] = vL === '1' || vL === 'true';
+    else {
+      var nL = parseFloat(vL);
+      if (nL === nL) LOOK[kL] = nL;
+    }
+  }
+
   if (qs.get('autostart') === '1') {
     dom.difficulty.value = qs.get('difficulty') || 'classic';
     newRun();
@@ -503,8 +516,7 @@
   }
 
   // test/QA handle: lets a headless browser drive and inspect a live game
-  window.SlitherGame = {
-    world: function () { return world; },
+  window.SlitherGame = {    world: function () { return world; },
     me: function () { return me; },
     state: function () { return state; },
     fps: function () { return fps; },
