@@ -173,6 +173,7 @@
     // digging on key-hold auto-repeat would fire every frame: only take fresh presses
     if ((e.key === 's' || e.key === 'S' || e.key === '.') && !input.keys[e.key]) trySweeper(false);
     if ((e.key === 'f' || e.key === 'F') && !input.keys[e.key]) trySweeper(true);
+    if ((e.key === 'k' || e.key === 'K') && !input.keys[e.key]) toggleTune();
     input.keys[e.key] = true;
   });
   window.addEventListener('keyup', function (e) {
@@ -332,6 +333,89 @@
     });
   }
 
+  // ------------------------------------------------------------- dev tuning panel
+  // Playground sliders for every SlitherRender.LOOK knob + an export that builds a
+  // URL replaying the exact look (clipboard-copied, and shown for manual select).
+  // DEV ONLY — delete buildTune/toggleTune, the 'k' keydown line and the .tune CSS
+  // block when shipping.
+  var tunePanel = null;
+
+  function buildTune() {
+    var LOOK2 = window.SlitherRender.LOOK;
+    var p = document.createElement('div');
+    p.className = 'tune';
+    var head = document.createElement('div');
+    head.className = 'thead';
+    head.textContent = 'Look knobs \u2014 dev only (K hides)';
+    p.appendChild(head);
+
+    var ranges = {
+      stripeAlpha: [0, 1], bandMul: [0.5, 3], rimAlpha: [0, 1], veilAlpha: [0, 0.8],
+      washRevealed: [0, 0.3], washFlag: [0, 0.3], washMine: [0, 0.5],
+      cursorAlpha: [0, 1], numScale: [0.15, 0.8], headDisc: [0, 1, 1]
+    };
+
+    function tuneRow(k, range) {
+      var row = document.createElement('div');
+      row.className = 'trow';
+      var lbl = document.createElement('span');
+      lbl.className = 'tlbl';
+      lbl.textContent = k;
+      var val = document.createElement('span');
+      val.className = 'tval';
+      var sl = document.createElement('input');
+      sl.type = 'range';
+      sl.min = String(range[0]);
+      sl.max = String(range[1]);
+      sl.step = String(range[2] || 0.01);
+      sl.value = String(LOOK2[k]);
+      var fmt = function (v) { return k === 'headDisc' ? (parseFloat(v) >= 0.5 ? 'on' : 'off') : v; };
+      val.textContent = fmt(sl.value);
+      var apply = function () {
+        var v = parseFloat(sl.value);
+        if (v !== v) return;
+        LOOK2[k] = v;
+        val.textContent = fmt(sl.value);
+      };
+      sl.addEventListener('input', apply);
+      sl.addEventListener('change', apply);
+      row.appendChild(lbl);
+      row.appendChild(sl);
+      row.appendChild(val);
+      return row;
+    }
+    for (var k3 in ranges) {
+      if (k3 in LOOK2) p.appendChild(tuneRow(k3, ranges[k3]));
+    }
+
+    var msg = document.createElement('div');
+    msg.className = 'tmsg';
+    msg.textContent = 'Export copies a URL that replays this exact look';
+    p.appendChild(msg);
+    var out = document.createElement('div');
+    out.className = 'tout';
+    p.appendChild(out);
+    var exp = document.createElement('button');
+    exp.className = 'texp';
+    exp.textContent = 'Export settings';
+    exp.addEventListener('click', function () {
+      var parts = [];
+      for (var k4 in LOOK2) parts.push(k4 + '=' + LOOK2[k4]);
+      var url = location.href.split('?')[0] + '?' + parts.join('&');
+      out.textContent = url;
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url);
+    });
+    p.appendChild(exp);
+    document.body.appendChild(p);
+    tunePanel = p;
+  }
+
+  function toggleTune() {
+    if (!tunePanel) return;
+    if (tunePanel.classList.contains('tune-off')) tunePanel.classList.remove('tune-off');
+    else tunePanel.classList.add('tune-off');
+  }
+
   function showDeath(killerName, cause) {
     state = 'dead';
     if (window.SlitherMusic) window.SlitherMusic.duck(true);
@@ -482,6 +566,7 @@
       world.diffCfg = S.DIFFICULTY[world.diff];
     }
   });
+  buildTune();
   R.init(canvas);
   requestAnimationFrame(frame);
 
