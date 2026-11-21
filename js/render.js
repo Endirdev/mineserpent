@@ -97,6 +97,7 @@
       this.drawBoundary(ctx, world, zoom);
       this.drawFood(ctx, world, left, top, right, bottom);
       this.drawSnakes(ctx, world, left, top, right, bottom, zoom);
+      this.drawSweeperOverlay(ctx, world, left, top, right, bottom, zoom);
       this.drawEffects(ctx, world, zoom);
 
       // ---- vignette (screen space)
@@ -148,12 +149,8 @@
       var lx1 = Math.min(sw.w - 1, Math.floor(right / c) - sw.ix0);
       var ly0 = Math.max(0, Math.floor(top / c) - sw.iy0);
       var ly1 = Math.min(sw.h - 1, Math.floor(bottom / c) - sw.iy0);
-      var fs = Math.round(c * 0.42);
-      var numFont = '700 ' + fs + 'px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      // paint strictly inside the arena circle: edge cells are playable (their centre
-      // is in), but their squares must be cut by the ring, like the grid lines do
+      // washes only, under food and snakes; the readable layer (numbers, glyphs,
+      // cursor) is drawSweeperOverlay, painted above the snakes so bodies never hide them
       ctx.save();
       ctx.beginPath();
       ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
@@ -168,19 +165,58 @@
           if (st === 2) {
             ctx.fillStyle = 'rgba(255,74,90,0.06)';
             ctx.fillRect(wx, wy, c, c);
-            this.drawFlag(ctx, wx, wy, c);
           } else if (st === 0) {
             continue;   // hidden cells are just the grid
           } else if (sw.mine[i]) {
             ctx.fillStyle = 'rgba(255,64,88,0.16)';
             ctx.fillRect(wx, wy, c, c);
-            this.drawMine(ctx, wx, wy, c);
           } else {
             ctx.fillStyle = 'rgba(104,158,240,0.09)';
             ctx.fillRect(wx, wy, c, c);
+          }
+        }
+      }
+      ctx.restore();
+    },
+
+    // the readable layer, painted after the snakes: numbers, exposed mines, flags and
+    // the head cursor each carry a dark halo so they hold against any body colour
+    drawSweeperOverlay: function (ctx, world, left, top, right, bottom, zoom) {
+      var sw = world.sweeper;
+      if (!sw) return;
+      var c = sw.cell;
+      var lx0 = Math.max(0, Math.floor(left / c) - sw.ix0);
+      var lx1 = Math.min(sw.w - 1, Math.floor(right / c) - sw.ix0);
+      var ly0 = Math.max(0, Math.floor(top / c) - sw.iy0);
+      var ly1 = Math.min(sw.h - 1, Math.floor(bottom / c) - sw.iy0);
+      var fs = Math.round(c * 0.42);
+      var numFont = '700 ' + fs + 'px system-ui, sans-serif';
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (var ly = ly0; ly <= ly1; ly++) {
+        var wy = (sw.iy0 + ly) * c;
+        for (var lx = lx0; lx <= lx1; lx++) {
+          var i = ly * sw.w + lx;
+          if (!sw.inside[i]) continue;
+          var wx = (sw.ix0 + lx) * c;
+          var st = sw.state[i];
+          if (st === 2) {
+            this.drawFlag(ctx, wx, wy, c);
+          } else if (st === 0) {
+            continue;
+          } else if (sw.mine[i]) {
+            this.drawMine(ctx, wx, wy, c);
+          } else {
             var n = sw.adj[i];
             if (n > 0) {
               ctx.font = numFont;
+              ctx.lineWidth = fs * 0.16;
+              ctx.strokeStyle = 'rgba(4,8,18,0.9)';
+              ctx.strokeText(String(n), wx + c / 2, wy + c / 2 + 1);
               ctx.fillStyle = NUM_TINT[n];
               ctx.fillText(String(n), wx + c / 2, wy + c / 2 + 1);
             }
@@ -195,9 +231,12 @@
         var hy = Math.floor(world.player.y() / c) - sw.iy0;
         if (hx >= 0 && hy >= 0 && hx < sw.w && hy < sw.h && sw.inside[hy * sw.w + hx]) {
           var px = (sw.ix0 + hx) * c, py = (sw.iy0 + hy) * c;
-          var pad = c * 0.06;
+          var pad = c * 0.06, lw = Math.max(1.2, c * 0.02);
+          ctx.strokeStyle = 'rgba(4,8,18,0.8)';
+          ctx.lineWidth = lw + 3;
+          ctx.strokeRect(px + pad, py + pad, c - 2 * pad, c - 2 * pad);
           ctx.strokeStyle = 'rgba(123,255,176,0.55)';
-          ctx.lineWidth = Math.max(1.2, c * 0.02);
+          ctx.lineWidth = lw;
           ctx.strokeRect(px + pad, py + pad, c - 2 * pad, c - 2 * pad);
         }
       }
@@ -206,19 +245,37 @@
 
     drawFlag: function (ctx, x, y, c) {
       var fx = x + c * 0.32, base = y + c * 0.74, top = y + c * 0.24;
+      var lw = Math.max(1.2, c * 0.03);
+      ctx.strokeStyle = 'rgba(4,8,18,0.85)';      // halo under the pole
+      ctx.lineWidth = lw + 3;
+      ctx.beginPath();
+      ctx.moveTo(fx, base);
+      ctx.lineTo(fx, top);
+      ctx.stroke();
       ctx.strokeStyle = 'rgba(234,252,255,0.85)';
-      ctx.lineWidth = Math.max(1.2, c * 0.03);
+      ctx.lineWidth = lw;
       ctx.beginPath();
       ctx.moveTo(fx, base);
       ctx.lineTo(fx, top);
       ctx.stroke();
       ctx.fillStyle = '#ff4a5a';
+      ctx.strokeStyle = 'rgba(4,8,18,0.85)';
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(fx, top);
       ctx.lineTo(fx + c * 0.3, top + c * 0.09);
       ctx.lineTo(fx, top + c * 0.2);
       ctx.closePath();
       ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(4,8,18,0.85)';
+      ctx.lineWidth = lw + 3;
+      ctx.beginPath();
+      ctx.moveTo(fx - c * 0.13, base);
+      ctx.lineTo(fx + c * 0.13, base);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(234,252,255,0.85)';
+      ctx.lineWidth = lw;
       ctx.beginPath();
       ctx.moveTo(fx - c * 0.13, base);
       ctx.lineTo(fx + c * 0.13, base);
@@ -227,6 +284,10 @@
 
     drawMine: function (ctx, x, y, c) {
       var mx = x + c / 2, my = y + c / 2, rr = c * 0.16;
+      ctx.fillStyle = 'rgba(4,8,18,0.75)';        // dark backing so the red holds on any skin
+      ctx.beginPath();
+      ctx.arc(mx, my, rr * 2.1, 0, Math.PI * 2);
+      ctx.fill();
       ctx.strokeStyle = '#ff3f5f';
       ctx.fillStyle = 'rgba(255,63,95,0.4)';
       ctx.lineWidth = Math.max(1.4, c * 0.025);
