@@ -163,9 +163,17 @@
     trySweeper(false, p.x, p.y);
   });
   canvas.addEventListener('contextmenu', function (e) {
+    e.preventDefault();                // the browser's own menu must not shadow our right click
     if (touchSeen) return;
     var p2 = pointerWorld(e);
     trySweeper(true, p2.x, p2.y);
+  });
+  // overlays can send the contextmenu up to the document while the pointer is still
+  // over the board, so guard that path too
+  document.addEventListener('contextmenu', function (e) {
+    var t = e.target;
+    if (t && t !== canvas && t.tagName !== 'CANVAS') return;   // html UI keeps its menu
+    e.preventDefault();
   });
   // boost holds per button: letting go of a dig or a flag must not cancel a
   // boost you are still holding on the middle button
