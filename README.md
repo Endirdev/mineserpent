@@ -34,7 +34,10 @@ slither-local/
   tools/make_track.py    synthesizes the soundtrack from scratch
   tools/test_master.py   unit checks for the master-chain blocks
   tools/analyze_track.py checks the rendered track (tempo, tuning, headroom, clipping)
+  tools/bench-page.mjs   headless-Chrome frame bench: world.step and Render.draw on the real page
+  tools/bench-draw.mjs   painter bench: one fixed scene, timed as a batch
   test/smoke.mjs    headless simulation + rule tests
+  test/bench.mjs    seeded-PRNG simulation bench (match + stress scenarios)
 ```
 
 ## Play
@@ -89,6 +92,54 @@ full-clear and spawn safety. It also asserts `world.step` stays well inside a 16
 If you have Chrome and puppeteer-core, a page-level QA run drives the real UI
 (menu, real mouse and keyboard events, HUD, kill feed, death card, respawn, mute) and
 writes screenshots to `/tmp/opencode/shots`.
+
+## Performance
+
+The simulation is benchmarked headless with a **seeded PRNG**, so a run before a change
+and a run after it play the same match and the numbers mean something:
+
+```
+npm install --no-save puppeteer-core   # dev-only; the game itself has no deps
+node test/bench.mjs                    # medians for two scenarios, vs the saved baseline
+node test/bench.mjs --baseline         # re-record the baseline after a deliberate change
+node tools/bench-page.mjs              # real page in headless Chrome: step + draw per frame
+node tools/bench-draw.mjs              # painter-only: one fixed scene, 300 draws as a batch
+```
+
+`test/bench.mjs` measures a normal 90s Ruthless match and a *stress* board — everyone
+force-fed past 600 mass, bodies at the segment cap, the worst `world.step` ever sees:
+
+| scenario | mean step before | mean step after |
+| --- | --- | --- |
+| match  | 3.88 ms | **1.08 ms** (−72%) |
+| stress | 12.44 ms | **2.96 ms** (−76%), p95 4.3 ms |
+
+What bought that, in order of payoff:
+
+- **Spatial hash, flat array.** The hash keyed buckets in a `Map` and computed
+  `Math.floor(x / cell)` per item; profiling showed that indexing was ~47% of a
+  stressed step. Cells are now addressed by index in a plain array, with one
+  reciprocal multiply replacing each division, and `clear()` empties buckets in
+  place.
+- **Squared distances everywhere.** Steering, collisions, pellet pickup, and spawn
+  placement all compared `d²` against a squared threshold; the old code ran
+  `Math.sqrt` millions of times a second, including twice per comparison inside the
+  threat sort.
+- **Per-decision precomputation.** Bot steering recomputed threat vectors, pellet
+  directions, and normalized hunt/flee/center vectors once *per candidate heading* —
+  seventeen times over. Everything a heading needs is now computed once per decision,
+  and the heading loop is pure multiply-adds.
+- **Bucket-direct queries.** Hot paths iterate hash buckets through a callback
+  instead of copying a search window's contents into a shared scratch array.
+- **Body chain step.** `moveBody` used three divisions per link; it now uses one
+  reciprocal. It is the remaining top item (~48% of a stressed step), and it is
+  `sqrt`-bound by the exact-spacing constraint — that part is the algorithm, not overhead.
+- **Painter allocations.** Colour strings (pellet glow, sweeper washes, per-skin rim
+  and stripe shades), dash arrays, and the nameplate font were assembled per pellet,
+  per snake, per frame; they are built once and reused. Headless Chrome cannot show
+  the win — SwiftShader raster dominates the ~10 ms software frame — but it retires
+  a few hundred string allocations per frame on real hardware, and the live-page bench
+  measures step −14% game / −25% stressed with draw unregressed.
 
 ## How it works
 
