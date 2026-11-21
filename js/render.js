@@ -44,15 +44,15 @@
     // playground knobs, live-tunable: window.SlitherRender.LOOK.stripeAlpha = 0.4 from
     // the console, or straight from the URL: index.html?stripeAlpha=0.4&veilAlpha=0.3
     LOOK: {
-      stripeAlpha: 0.6,   // glass: opacity of the b-stripe windows (1 = solid stripes,
+      stripeAlpha: 0.86,  // glass: opacity of the b-stripe windows (1 = solid stripes,
                           //       0 = board shows fully through the windows)
       bandMul: 1.35,      // stripe length: max(9, radius * bandMul); bigger = more glass
-      rimAlpha: 1,        // dark rim around the opaque a segments
-      veilAlpha: 0,       // ghost of covered marks drawn over the snakes; 0 = stripes only
+      rimAlpha: 0.79,     // dark rim around the opaque a segments
+      veilAlpha: 0.1,     // ghost of covered marks drawn over the snakes; 0 = stripes only
       washRevealed: 0.09, // revealed-cell tint
       washFlag: 0.06,     // flagged-cell tint
       washMine: 0.16,     // exposed-mine tint
-      cursorAlpha: 0.55,  // green cell cursor under the head
+      cursorAlpha: 0.1,   // green cell cursor under the head
       numScale: 0.42,     // board numbers as a fraction of the cell
       headDisc: true,     // opaque head exception to the lattice (false = all stripes)
     },
