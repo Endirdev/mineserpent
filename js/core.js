@@ -80,33 +80,53 @@
     return a;
   }
 
-  // Uniform spatial hash. Keys are integers (ix << 16 | iy) offset into positive range.
-  // Buckets are reused between frames: clear() empties them in place, so a frame does
-  // not allocate a new array per cell.
-  function Grid(cell) {
+  // Uniform spatial hash over the arena. Flat-array backed: a cell is addressed
+  // by index instead of a Map key, and clear() empties only the buckets that
+  // have been touched since the last clear — the rebuild-every-frame pattern
+  // used to spend half the frame in Map bookkeeping.
+  function Grid(cell, radius) {
     this.cell = cell;
-    this.cells = new Map();
+    this.span = Math.ceil(2 * radius / cell) + 2;   // cells per axis, with padding
+    this.half = this.span >> 1;
+    this.bias = this.half * cell;                   // shifts world coords positive
+    this.inv = 1 / cell;                            // one division, used as a multiply
+    this.cells = new Array(this.span * this.span);  // buckets allocated lazily
+    this.live = [];                                 // every bucket ever created
   }
   Grid.prototype.clear = function () {
-    this.cells.forEach(function (bucket) { bucket.length = 0; });
+    var live = this.live;
+    for (var i = 0; i < live.length; i++) live[i].length = 0;
+  };
+  // Truncated offsets, not floor: insert and each use the identical formula, so
+  // a cell-edge epsilon lands in the same bucket for both, and the clamps make
+  // any negative or out-of-range result land on the edge bucket they would have.
+  Grid.prototype.index = function (x, y) {
+    var span = this.span, inv = this.inv, bias = this.bias;
+    var ix = ((x + bias) * inv) | 0;
+    var iy = ((y + bias) * inv) | 0;
+    if (ix < 0) ix = 0; else if (ix >= span) ix = span - 1;
+    if (iy < 0) iy = 0; else if (iy >= span) iy = span - 1;
+    return iy * span + ix;
   };
   Grid.prototype.insert = function (x, y, item) {
-    var ix = Math.floor(x / this.cell), iy = Math.floor(y / this.cell);
-    var key = (ix + 4096) * 8192 + (iy + 4096);
-    var bucket = this.cells.get(key);
-    if (bucket) bucket.push(item); else this.cells.set(key, [item]);
+    var i = this.index(x, y);
+    var bucket = this.cells[i];
+    if (bucket) bucket.push(item);
+    else { bucket = [item]; this.cells[i] = bucket; this.live.push(bucket); }
     return item;
   };
   // Visit every item in cells overlapping a square around (x,y) without copying
   // buckets into an array first. Hot paths filter aggressively, so materializing
-  // the full result (the old shared-scratch query) was pure overhead.
+  // the full result was pure overhead.
   Grid.prototype.each = function (x, y, r, fn) {
-    var c = this.cell;
-    var x0 = Math.floor((x - r) / c), x1 = Math.floor((x + r) / c);
-    var y0 = Math.floor((y - r) / c), y1 = Math.floor((y + r) / c);
+    var inv = this.inv, bias = this.bias, span = this.span, cells = this.cells;
+    var x0 = ((x - r + bias) * inv) | 0, x1 = ((x + r + bias) * inv) | 0;
+    var y0 = ((y - r + bias) * inv) | 0, y1 = ((y + r + bias) * inv) | 0;
+    if (x0 < 0) x0 = 0; if (x1 >= span) x1 = span - 1;
+    if (y0 < 0) y0 = 0; if (y1 >= span) y1 = span - 1;
     for (var ix = x0; ix <= x1; ix++) {
       for (var iy = y0; iy <= y1; iy++) {
-        var bucket = this.cells.get((ix + 4096) * 8192 + (iy + 4096));
+        var bucket = cells[iy * span + ix];
         if (!bucket) continue;
         for (var i = 0; i < bucket.length; i++) fn(bucket[i]);
       }
@@ -116,15 +136,7 @@
   var _scratch = [];
   Grid.prototype.query = function (x, y, r) {
     _scratch.length = 0;
-    var c = this.cell;
-    var x0 = Math.floor((x - r) / c), x1 = Math.floor((x + r) / c);
-    var y0 = Math.floor((y - r) / c), y1 = Math.floor((y + r) / c);
-    for (var ix = x0; ix <= x1; ix++) {
-      for (var iy = y0; iy <= y1; iy++) {
-        var bucket = this.cells.get((ix + 4096) * 8192 + (iy + 4096));
-        if (bucket) for (var i = 0; i < bucket.length; i++) _scratch.push(bucket[i]);
-      }
-    }
+    this.each(x, y, r, function (it) { _scratch.push(it); });
     return _scratch;
   };
 
@@ -199,8 +211,8 @@
     this.food = [];
     this.effects = [];
     this.events = [];
-    this.foodGrid = new Grid(140);
-    this.segGrid = new Grid(110);
+    this.foodGrid = new Grid(140, CFG.world.radius);
+    this.segGrid = new Grid(110, CFG.world.radius);
     this.segPool = [];
     this.player = null;
     this.time = 0;
