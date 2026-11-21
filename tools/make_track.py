@@ -6,6 +6,16 @@ comb reverb, arranged into a real song structure (intro / main / hook / break / 
 / outro) and written to audio/neon-drift.wav, then encoded to .ogg and .mp3.
 
     python3 tools/make_track.py            # writes audio/neon-drift.{wav,ogg,mp3}
+    python3 tools/make_track.py --no-lead --out neon-drift-leadless
+        # strips the horn-like lead voice (the hook melody) and writes a variant
+    python3 tools/make_track.py --no-lead --drums 0.8 --hats 0.62 --out neon-drift-leadless
+        # also pulls the kit (kick/snare/clap/crash) ~2 dB and the hats/tamb ~4 dB
+    python3 tools/make_track.py --no-lead --soft-kit --drums 0.8 --hats 0.62 --out neon-drift-leadless
+        # plus the electronic kit: 808-style kick, tonal snap, ticked hats, swish crash
+
+--no-lead drops the melody's brass-sounding voice; the master is then re-normalized
+*up* to TP_TARGET as well (not just capped down), so the variant plays at the same
+level as the original through the fixed in-game LEVEL.
 
 Needs numpy + scipy, and ffmpeg for the lossy encodes.
 """
@@ -38,6 +48,21 @@ LIMIT_CEIL = 0.62
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 AUDIO = os.path.join(ROOT, 'audio')
+
+# CLI: --no-lead strips the horn-like lead voice; --out NAME writes NAME.{wav,ogg,mp3}
+def _num_flag(name, default):
+    a = sys.argv[1:]
+    return float(a[a.index(name) + 1]) if name in a else default
+DRUM_MUL = _num_flag('--drums', 1.0)   # scales kick/snare/clap/crash
+HAT_MUL = _num_flag('--hats', 1.0)     # scales hi-hats and tambourine
+# --soft-kit rebuilds the kit as an electronic sample (round 808-style kick without
+# the cymbal click, tighter tonal snap, ticked hats, darker crash): the acoustic kit
+# reads as harsh and "on top"; the soft kit sits back into the track's bed.
+SOFT_KIT = '--soft-kit' in sys.argv[1:]
+DROP_LEAD = '--no-lead' in sys.argv[1:]
+OUT = 'neon-drift'
+if '--out' in sys.argv[1:]:
+    OUT = sys.argv[sys.argv.index('--out') + 1]
 
 # ------------------------------------------------------------------ tuning
 SECTIONS = [('intro', 8), ('main', 16), ('hook', 16), ('break', 8), ('climax', 16), ('outro', 8)]
@@ -220,60 +245,90 @@ def play_lead(t0, midi, dur, gain=1.0, cut=3400, vib=0.013, sub=True):
 # thing for a lossy codec: that combination is what reads as "clipping" when the
 # arrangement gets dense.
 def play_kick(t0, gain=1.0):
-    n = int(0.5 * SR)
+    n = int(0.55 * SR) if SOFT_KIT else int(0.5 * SR)
     t = np.arange(n) / SR
-    f = 118 * np.exp(-t / 0.048) + 41
-    body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.17)
-    click = lp(hp(RNG.standard_normal(n), 900), 9000) * np.exp(-t / 0.005)
-    x = sat(1.55 * body + 0.45 * click, 1.5)
-    stems['drums'].add(t0, x, 0.90 * gain, 0.0)
+    if SOFT_KIT:
+        # 808-style: round glide, octave layer underneath, no cymbal click on top
+        f = 106 * np.exp(-t / 0.060) + 43
+        body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.23)
+        body += 0.42 * np.sin(np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.20)
+        x = sat(1.5 * body, 1.4)
+    else:
+        f = 118 * np.exp(-t / 0.048) + 41
+        body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / 0.17)
+        click = lp(hp(RNG.standard_normal(n), 900), 9000) * np.exp(-t / 0.005)
+        x = sat(1.55 * body + 0.45 * click, 1.5)
+    stems['drums'].add(t0, x, 0.90 * DRUM_MUL * gain, 0.0)
 
 
 def play_snare(t0, gain=1.0):
     n = int(0.38 * SR)
     t = np.arange(n) / SR
-    noise = bp(RNG.standard_normal(n), 380, 7600) * np.exp(-t / 0.12)
-    body = np.sin(2 * np.pi * 186 * t) * np.exp(-t / 0.10)
-    tone = bp(RNG.standard_normal(n), 1100, 3200) * np.exp(-t / 0.045)
-    air = bp(RNG.standard_normal(n), 6500, 12500) * np.exp(-t / 0.055)
-    x = sat(noise * 1.0 + body * 0.8 + tone * 0.55 + air * 0.40, 1.45)
-    stems['drums'].add(t0, x, 0.70 * gain, 0.0)
+    if SOFT_KIT:
+        # tonal snap: tight and dark, more body than noise, nothing above 2.4k
+        noise = bp(RNG.standard_normal(n), 620, 3600) * np.exp(-t / 0.075)
+        body = np.sin(2 * np.pi * 168 * t) * np.exp(-t / 0.06)
+        tone = bp(RNG.standard_normal(n), 1000, 2400) * np.exp(-t / 0.028)
+        x = sat(noise * 0.9 + body * 0.85 + tone * 0.45, 1.3)
+    else:
+        noise = bp(RNG.standard_normal(n), 380, 7600) * np.exp(-t / 0.12)
+        body = np.sin(2 * np.pi * 186 * t) * np.exp(-t / 0.10)
+        tone = bp(RNG.standard_normal(n), 1100, 3200) * np.exp(-t / 0.045)
+        air = bp(RNG.standard_normal(n), 6500, 12500) * np.exp(-t / 0.055)
+        x = sat(noise * 1.0 + body * 0.8 + tone * 0.55 + air * 0.40, 1.45)
+    stems['drums'].add(t0, x, 0.70 * DRUM_MUL * gain, 0.0)
 
 
 def play_hat(t0, gain=1.0, open_=False, pan=0.22):
     d = 0.34 if open_ else 0.085
     n = int(d * SR)
     t = np.arange(n) / SR
-    decay = 0.15 if open_ else 0.028
-    x = bp(RNG.standard_normal(n), 4200, 12500) * np.exp(-t / decay)
-    x += 0.35 * bp(RNG.standard_normal(n), 5200, 11500) * np.exp(-t / (decay * 1.6))
-    stems['drums'].add(t0, x, (0.34 if open_ else 0.26) * gain, pan)
+    if SOFT_KIT:
+        # tick, not cymbal: shorter, narrower, above the sizzle band
+        decay = 0.11 if open_ else 0.020
+        x = bp(RNG.standard_normal(n), 5800, 11200) * np.exp(-t / decay)
+        x += 0.22 * bp(RNG.standard_normal(n), 6500, 10000) * np.exp(-t / (decay * 1.6))
+    else:
+        decay = 0.15 if open_ else 0.028
+        x = bp(RNG.standard_normal(n), 4200, 12500) * np.exp(-t / decay)
+        x += 0.35 * bp(RNG.standard_normal(n), 5200, 11500) * np.exp(-t / (decay * 1.6))
+    stems['drums'].add(t0, x, (0.34 if open_ else 0.26) * HAT_MUL * gain, pan)
 
 
 def play_clap(t0, gain=1.0):
     n = int(0.42 * SR)
     x = np.zeros(n)
+    hi = 6800 if not SOFT_KIT else 4200
     for k, off in enumerate((0.0, 0.012, 0.024, 0.038)):
         i = int(off * SR)
-        seg = bp(RNG.standard_normal(n - i), 900, 6800) * np.exp(-np.arange(n - i) / SR / (0.05 + 0.012 * k))
+        stack = (0.05 + 0.012 * k) if not SOFT_KIT else (0.04 + 0.009 * k)
+        seg = bp(RNG.standard_normal(n - i), 900, hi) * np.exp(-np.arange(n - i) / SR / stack)
         x[i:] += seg * (1.0 - 0.13 * k)
-    stems['drums'].add(t0, sat(x, 1.35), 0.36 * gain, -0.12)
+    stems['drums'].add(t0, sat(x, 1.35), 0.36 * DRUM_MUL * gain, -0.12)
 
 
 def play_tamb(t0, gain=1.0):
     n = int(0.16 * SR)
     t = np.arange(n) / SR
-    x = bp(RNG.standard_normal(n), 6000, 12500) * np.exp(-t / 0.05)
-    stems['drums'].add(t0, x, 0.15 * gain, -0.45)
+    lo, hi = (5000, 9500) if SOFT_KIT else (6000, 12500)
+    x = bp(RNG.standard_normal(n), lo, hi) * np.exp(-t / 0.05)
+    stems['drums'].add(t0, x, 0.15 * HAT_MUL * gain, -0.45)
 
 
 def play_crash(t0, gain=1.0):
-    n = int(1.9 * SR)
-    t = np.arange(n) / SR
-    x = bp(RNG.standard_normal(n), 1800, 13000) * np.exp(-t / 0.55)
-    x += 0.30 * bp(RNG.standard_normal(n), 6500, 13000) * np.exp(-t / 1.1)
-    x += 0.4 * bp(RNG.standard_normal(n), 300, 2000) * np.exp(-t / 0.9)
-    stems['drums'].add(t0, x, 0.34 * gain, 0.25)
+    if SOFT_KIT:
+        # swish, not cymbal: darker, shorter, no low rumble layer
+        n = int(1.3 * SR)
+        t = np.arange(n) / SR
+        x = bp(RNG.standard_normal(n), 1400, 9000) * np.exp(-t / 0.45)
+        x += 0.22 * bp(RNG.standard_normal(n), 2200, 8000) * np.exp(-t / 0.8)
+    else:
+        n = int(1.9 * SR)
+        t = np.arange(n) / SR
+        x = bp(RNG.standard_normal(n), 1800, 13000) * np.exp(-t / 0.55)
+        x += 0.30 * bp(RNG.standard_normal(n), 6500, 13000) * np.exp(-t / 1.1)
+        x += 0.4 * bp(RNG.standard_normal(n), 300, 2000) * np.exp(-t / 0.9)
+    stems['drums'].add(t0, x, 0.34 * DRUM_MUL * gain, 0.25)
 
 
 def sweep_bp(x, f_from, f_to, bands=9, q=2.2):
@@ -360,6 +415,8 @@ def arp_bar(bar, gain=1.0, slots=16, cut=2600, span=2):
 
 
 def melody(bar0, bars, phrase, gain=1.0, shift=0, cut=3400):
+    if DROP_LEAD:      # variant: the horn-like voice stays out of every section
+        return
     for off, slot, note, length in phrase:
         if off >= bars:
             continue
@@ -619,15 +676,22 @@ def limiter(L, R, ceiling=LIMIT_CEIL, look=0.008, atk=0.003, rel=0.20, soft=1.0,
     return L * g, R * g, g
 
 
-def master_safety(L, R, ceiling=LIMIT_CEIL, target=TP_TARGET):
+def master_safety(L, R, ceiling=LIMIT_CEIL, target=TP_TARGET, allow_boost=False):
     """Limiter, then true-peak normalization: the pair that keeps the master out of
     clipping. The limiter's detector is sample-based, so the inter-sample maxima a DAC
     reconstructs are handled by the final scale - that is the guarantee, and the ceiling
     sits 1.4 dB above the target so the limiter only touches the top of the waveform
-    instead of flattening every transient."""
+    instead of flattening every transient.
+
+    allow_boost=True lets the final scale exceed 1: a sparser variant (say --no-lead)
+    peaks below the target, and capping only would ship it several dB quieter than the
+    original - the in-game LEVEL assumes the file lands on TP_TARGET either way.
+    """
     L, R, gr = limiter(L, R, ceiling=ceiling)
     tp = max(true_peak(L), true_peak(R))
-    scale = min(1.0, target / max(tp, 1e-9))
+    scale = target / max(tp, 1e-9)
+    if not allow_boost:
+        scale = min(1.0, scale)
     return L * scale, R * scale, gr, scale
 
 
@@ -729,7 +793,7 @@ def build():
 
     L, R, trims, loud = section_balance(L, R, section_bars)
     L, R, glue_g = glue(L, R)
-    L, R, gr, scale = master_safety(L, R)
+    L, R, gr, scale = master_safety(L, R, allow_boost=DROP_LEAD)
     tp = max(true_peak(L), true_peak(R))
 
     fade_in = int(1.6 * SR)
@@ -792,15 +856,15 @@ def main():
     os.makedirs(AUDIO, exist_ok=True)
     print(f'transport: {BPM} BPM, {TOTAL_BARS} bars, {DUR:.1f}s, {N} samples')
     pcm, info = build()
-    wav = os.path.join(AUDIO, 'neon-drift.wav')
+    wav = os.path.join(AUDIO, OUT + '.wav')
     wavfile.write(wav, SR, pcm)
     print(f'wrote {wav} ({os.path.getsize(wav) / 1e6:.1f} MB)')
     diagnose(pcm[:, 0].astype(float) / 32767, pcm[:, 1].astype(float) / 32767, info)
 
     # The lossy encoders reconstruct transients with overshoot, so the finished files are
     # measured on their own terms: the true peak that matters is the browser's.
-    ogg = os.path.join(AUDIO, 'neon-drift.ogg')
-    mp3 = os.path.join(AUDIO, 'neon-drift.mp3')
+    ogg = os.path.join(AUDIO, OUT + '.ogg')
+    mp3 = os.path.join(AUDIO, OUT + '.mp3')
     for target, args in ((ogg, ['-c:a', 'libvorbis', '-q:a', '6']),
                          (mp3, ['-c:a', 'libmp3lame', '-b:a', '224k'])):
         cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-i', wav] + args + [target]

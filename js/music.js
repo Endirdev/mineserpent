@@ -6,7 +6,12 @@
 (function (global) {
   'use strict';
 
-  var FILES = ['audio/neon-drift.ogg', 'audio/neon-drift.mp3'];
+  // Variant without the horn-like lead voice, electronic kit (--soft-kit), kit ~2 dB
+  // down, hats ~4 dB down
+  // (tools/make_track.py --no-lead --soft-kit --drums 0.8 --hats 0.62 --out neon-drift-leadless);
+  // the original pair stays on disk as the fallback if the variant is missing.
+  var FILES = ['audio/neon-drift-leadless.ogg', 'audio/neon-drift-leadless.mp3',
+               'audio/neon-drift.ogg', 'audio/neon-drift.mp3'];
   // The file is mastered with 4.4 dB of true-peak headroom (see tools/make_track.py), so
   // this number is higher than the peak amplitude suggests: 0.70 * 0.605 peaks at 0.42,
   // which leaves the gameplay sounds sitting on top of the music instead of fighting it.

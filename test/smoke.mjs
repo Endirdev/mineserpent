@@ -27,7 +27,7 @@ world.spawnSnake({ name: 'Tester', skin: S.SKINS[0], player: true, bot: false, m
 
 let deaths = 0, respawns = 0, foodPeak = 0, segPeak = 0, topMass = 0;
 let wallDeaths = 0, cuts = 0, mutual = 0;
-let stepMs = 0;
+let scoreDrift = 0, stepMs = 0;
 
 for (let i = 0; i < STEPS; i++) {
   // a crude stand-in for a human: head for the nearest food, boost in bursts.
@@ -61,6 +61,7 @@ for (let i = 0; i < STEPS; i++) {
     }
     segPeak = Math.max(segPeak, s.pts.length);
     topMass = Math.max(topMass, s.mass);
+    scoreDrift = Math.max(scoreDrift, Math.abs(s.score - s.mass));
   }
   for (const e of world.events) { if (e.killer) cuts++; else wallDeaths++; }
   deaths += world.events.length;
@@ -80,6 +81,7 @@ console.log(`deaths         : ${deaths}  (cut off by a snake: ${cuts}, hit the r
 console.log(`food on field  : ${world.food.length} (peak ${foodPeak})`);
 console.log(`longest body   : ${segPeak} segments, fattest snake ${Math.round(topMass)}`);
 if (player) console.log(`player         : mass ${Math.round(player.mass)} score ${Math.round(player.score)} kills ${player.kills} rank ${world.rank(player)}`);
+console.log(`length stat drift: ${scoreDrift.toFixed(2)} (score vs mass, all snakes, whole match)`);
 console.log('leaderboard    :');
 board.forEach((b, i) => console.log(`   ${String(i + 1).padStart(2)}. ${b.name} — ${b.mass}`));
 
@@ -126,6 +128,20 @@ function testHeadOn() {
   assert(a.dead && b.dead, 'head-to-head is mutual destruction');
 }
 
+function testMutualKillCredit() {
+  const w = arena();
+  // Bot created first, as in a real game: its death resolves before the player's,
+  // so at the player's resolution its killer is already dead. The player's death
+  // must still name the snake — the death screen must not say "You hit the wall".
+  const b = make(w, 0, -7, Math.PI, { mass: 40 });
+  const a = make(w, 0, 7, 0, { player: true, mass: 40 });
+  run(w, 40, () => { a.aim = 0; b.aim = Math.PI; });
+  assert(a.dead && b.dead, 'a mutual crash kills both snakes');
+  const mine = w.events.filter((e) => e.playerVictim);
+  assert(mine.length === 1 && mine[0].killer === b.name && mine[0].killerId === b.id,
+    'a snake kill is credited to the snake, not the wall');
+}
+
 function testWall() {
   const w = arena();
   const s = make(w, w.radius - 200, 0, 0);
@@ -148,10 +164,12 @@ function testGrowth() {
 function testBoost() {
   const w = arena();
   const s = make(w, 0, 0, 0, { mass: 120 });
-  const massBefore = s.mass, foodBefore = w.food.length;
+  const massBefore = s.mass, scoreBefore = s.score, foodBefore = w.food.length;
   // keep the field empty so the only food that appears is the length burned by boosting
   run(w, 180, () => { w.food.length = 0; s.aim = 0; s.boost = true; });
   assert(s.mass < massBefore - 10, 'boosting burns your own length');
+  assert(s.score < scoreBefore - 10, 'the length stat falls while boosting, not just the mass');
+  assert(Math.abs(s.score - s.mass) < 0.5, 'the length stat tracks the real body, never floats above it');
   assert(w.food.length > foodBefore + 5, 'the burned length is paid out as food behind you');
   const thin = make(w, 0, 900, 0, { mass: 8 });
   const thinBefore = thin.mass;
@@ -162,6 +180,7 @@ function testBoost() {
 console.log('--- rule tests ----------------------------------------------');
 testCutOff();
 testHeadOn();
+testMutualKillCredit();
 testWall();
 testGrowth();
 testBoost();
@@ -172,6 +191,7 @@ assert(board[0].mass > 20, 'snakes grow well past spawn size');
 assert(alive.every((s) => s.pts.length >= 2), 'every snake has a body');
 assert(alive.every((s) => Math.hypot(s.x(), s.y()) < world.radius + 60), 'nobody lives outside the arena');
 assert(world.food.length > 400, 'food stays on the field');
+assert(scoreDrift < 0.01, 'the length stat never drifts from the real body (boosting included)');
 assert(cuts > wallDeaths, 'the bots mostly die to each other, not to the ring');
 assert(segPeak > 60, 'bodies get long enough to be a real threat');
 assert(stepMs / STEPS < 8.0, 'world.step fits comfortably in a 16.6ms frame');

@@ -140,7 +140,7 @@
     this.aim = this.angle;
     this.boost = false;
     this.mass = opts.mass || CFG.snake.startMass;
-    this.score = this.mass;      // lifetime food eaten — the "length" on the board
+    this.score = this.mass;      // current length — rises with food, falls when boosting burns it
     this.r = massToRadius(this.mass);
     this.speed = massToSpeed(this.mass);
     this.kills = 0;
@@ -443,7 +443,10 @@
     }
     this.effects.push({ type: 'shock', x: s.x(), y: s.y(), r: s.r, max: s.r * 6 + 90, t: 0 });
 
-    if (killer && !killer.dead && killer !== s) {
+    // Credit the kill even if the killer died in the same frame (mutual crash):
+    // killers are collected from live snakes, so a dead killer here means a
+    // mutual kill — not a wall death.
+    if (killer && killer !== s) {
       killer.kills += 1;
       this.events.push({ type: 'kill', killer: killer.name, victim: s.name, killerId: killer.id, victimId: s.id, playerKill: killer.player, playerVictim: s.player });
     } else {
@@ -483,7 +486,9 @@
       s.pts[0].y += Math.sin(s.angle) * v * dt;
 
       if (boosting) {
-        s.mass -= CFG.snake.boostDrain * dt * (0.6 + s.r * 0.03);
+        var burn = CFG.snake.boostDrain * dt * (0.6 + s.r * 0.03);
+        s.mass -= burn;
+        s.score -= burn;   // boosting burns your length — the length stat must shrink too
         if (s.mass < CFG.snake.boostMinMass) s.boost = false;
       }
 
