@@ -369,23 +369,24 @@
           ctx.stroke();
         }
 
-        ctx.lineWidth = 2 * r + 5;
-        ctx.strokeStyle = s2.player ? shade(skin.a, 0.8) : shade(skin.a, -0.5);
-        ctx.stroke();
-
-        ctx.lineWidth = 2 * r;
-        ctx.strokeStyle = skin.a;
-        ctx.stroke();
-
-        // alternating rings of the second skin colour, the Slither stripe.
-        // butt caps: round caps would stretch every dash by half the tube width and
-        // fuse the rings into a solid line.
+        // two alternating dash phases instead of solid body + stripes over it: the
+        // a segments (rim included) are opaque and hide the board, the b stripes are
+        // translucent windows so minesweeper marks under the snake read through them,
+        // dimmed by the stripe colour — genuinely "from behind"
         var band = Math.max(9, r * 1.35);
         ctx.save();
         ctx.lineCap = 'butt';
         ctx.setLineDash([band, band]);
+        ctx.lineDashOffset = 0;
+        ctx.lineWidth = 2 * r + 5;
+        ctx.strokeStyle = s2.player ? shade(skin.a, 0.8) : shade(skin.a, -0.5);
+        ctx.stroke();
         ctx.lineWidth = 2 * r;
-        ctx.strokeStyle = skin.b;
+        ctx.strokeStyle = skin.a;
+        ctx.stroke();
+        ctx.lineDashOffset = band;    // half a period over: fills exactly the gaps
+        ctx.lineWidth = 2 * r;
+        ctx.strokeStyle = rgba(skin.b, 0.6);
         ctx.stroke();
         ctx.restore();
 
