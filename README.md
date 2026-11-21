@@ -1,4 +1,4 @@
-# Slither Local
+# Mineserpent
 
 A local, offline clone of Slither.io. No server, no build step, no dependencies — the
 bots play the game exactly the way people do: they hunt pellets, dodge bodies, chase
@@ -8,7 +8,7 @@ Open `index.html` in a browser and you are playing.
 
 ## Published
 
-**https://endirdev.github.io/slither/** — GitHub Pages, served from the root of `main`.
+**https://endirdev.github.io/mineserpent/** — GitHub Pages, served from the root of `main`.
 No build step: Pages copies the files verbatim (`.nojekyll` opts out of Jekyll so nothing
 is transformed), so the deployed page is byte-for-byte the one in this repo.
 
@@ -23,7 +23,7 @@ The browser only ever fetches `index.html`, `styles.css`, the four `js/` files a
 public alongside the rest.
 
 ```
-slither-local/
+mineserpent/
   index.html        the page: canvas + menu + HUD + death card
   styles.css        UI chrome
   js/core.js        the simulation (no DOM: runs in Node too)
@@ -172,7 +172,7 @@ Mass decides how many points exist (`12 + 0.9 × mass`, capped at 900), how fat 
 is, how fast it goes, and how sharply it can turn — so a fat snake is slow to steer.
 
 **Rendering** draws each snake as three strokes of one path: a dark outline, the body
-colour, then the second colour through a dash pattern, which gives the ringed Slither
+colour, then the second colour through a dash pattern, which gives the ringed Slither.io
 skin. Bands use butt caps: round caps stretch every dash by half the tube width and
 fuse the rings into a solid line. Everything is culled to the camera.
 

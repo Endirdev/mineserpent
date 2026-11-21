@@ -42,7 +42,7 @@ await tab.evaluateOnNewDocument(`
     const i = window.__pace.t.length;
     window.__pace.t.push(ts); window.__pace.steps.push(0); window.__pace.head.push(NaN);
     const r = cb(ts);
-    const w = window.SlitherGame ? window.SlitherGame.world() : null;
+    const w = window.MineserpentGame ? window.MineserpentGame.world() : null;
     if (w && w.player && !w.player.dead) {
       const p = w.player.pts[0], lp = window.__pace.lastLerp === undefined ? 1 : window.__pace.lastLerp;
       window.__pace.head[i] = (p.px === undefined ? p.x : p.px + (p.x - p.px) * lp);
@@ -52,7 +52,7 @@ await tab.evaluateOnNewDocument(`
 `);
 await tab.goto(page + '?autostart=1&difficulty=ruthless', { waitUntil: 'load' });
 await tab.evaluate(`
-  const W = window.Slither.World, R = window.SlitherRender;
+  const W = window.Mineserpent.World, R = window.MineserpentRender;
   const oStep = W.prototype.step;
   W.prototype.step = function (dt) { window.__pace.steps[window.__pace.steps.length - 1]++; return oStep.call(this, dt); };
   const oDraw = R.draw.bind(R);

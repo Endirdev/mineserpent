@@ -1,5 +1,5 @@
 /* Deterministic painter benchmark: builds the SAME scene (seeded PRNG, fixed
- * camera) and times 300 SlitherRender.draw() calls as one batch, so canvas
+ * camera) and times 300 MineserpentRender.draw() calls as one batch, so canvas
  * raster noise can't mask JS-side paint costs. Run before/after a render
  * change by stashing the working tree — the scene is bit-identical across
  * core versions because the PRNG consumption order is unchanged.
@@ -34,7 +34,7 @@ const out = await tab.evaluate(`
       };
     }
     Math.random = mulberry32(424242);
-    const w = new Slither.World({ difficulty: 'ruthless' });
+    const w = new Mineserpent.World({ difficulty: 'ruthless' });
     // Grow everyone to a fixed size, then pin the scene so both code versions
     // paint the same workload: the same number of alive snakes, the same
     // segment counts, a fixed pellet count, and a fixed revealed/flag count.
@@ -66,12 +66,12 @@ const out = await tab.evaluate(`
 
     const N = 300;
     const t0 = performance.now();
-    for (let i = 0; i < N; i++) SlitherRender.draw(w, view);
+    for (let i = 0; i < N; i++) MineserpentRender.draw(w, view);
     const drawMs = (performance.now() - t0) / N;
 
     const mini = document.getElementById('minimap');
     const t1 = performance.now();
-    for (let i = 0; i < N; i++) SlitherRender.drawMinimap(w, mini, big);
+    for (let i = 0; i < N; i++) MineserpentRender.drawMinimap(w, mini, big);
     const miniMs = (performance.now() - t1) / N;
 
     let segs = 0, alive = 0;

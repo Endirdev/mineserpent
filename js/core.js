@@ -1,6 +1,6 @@
-/* Slither Local — core simulation.
+/* Mineserpent — core simulation.
  * Pure logic: no DOM, no canvas. Runs in the browser and in Node (see test/smoke.mjs).
- * Exposes a single global: Slither
+ * Exposes a single global: Mineserpent
  */
 (function (global) {
   'use strict';
@@ -893,7 +893,7 @@
     });
   };
 
-  global.Slither = {
+  global.Mineserpent = {
     CFG: CFG,
     SKINS: SKINS,
     DIFFICULTY: DIFFICULTY,

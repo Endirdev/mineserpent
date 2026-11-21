@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Neon Drift — a synthwave track for Slither Local, synthesized from scratch.
+"""Neon Drift — a synthwave track for Mineserpent, synthesized from scratch.
 
 No samples, no instruments: oscillators, filters, envelopes, sidechain, delay and a
 comb reverb, arranged into a real song structure (intro / main / hook / break / climax

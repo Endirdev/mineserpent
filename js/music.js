@@ -1,4 +1,4 @@
-/* Slither Local — background music.
+/* Mineserpent — background music.
  * Plain HTMLAudioElement on purpose: file:// pages can play local media, but they
  * cannot fetch it into WebAudio, so the graph-based route would break "just open
  * index.html". Volume ramps are done in JS.
@@ -79,8 +79,8 @@
         global.addEventListener('keydown', resumeOnce, { once: true });
       });
     }
-    if (!window.__slitherMusicRamp) {
-      window.__slitherMusicRamp = global.setInterval(step, 60);
+    if (!window.__mineserpentMusicRamp) {
+      window.__mineserpentMusicRamp = global.setInterval(step, 60);
     }
   }
 
@@ -95,7 +95,7 @@
   function setEnabled(on) {
     enabled = !!on;
     try {
-      global.localStorage.setItem('slither.music', enabled ? 'on' : 'off');
+      global.localStorage.setItem('mineserpent.music', enabled ? 'on' : 'off');
     } catch (e) { /* private mode: the toggle still works for this session */ }
   }
 
@@ -103,11 +103,11 @@
 
   function loadPreference() {
     try {
-      enabled = global.localStorage.getItem('slither.music') !== 'off';
+      enabled = global.localStorage.getItem('mineserpent.music') !== 'off';
     } catch (e) { enabled = true; }
   }
 
-  global.SlitherMusic = {
+  global.MineserpentMusic = {
     start: start,
     duck: duck,
     setEnabled: setEnabled,
@@ -122,6 +122,6 @@
       } : null;
     },
     title: 'Neon Drift',
-    by: 'Slither Local (synthesized in tools/make_track.py)'
+    by: 'Mineserpent (synthesized in tools/make_track.py)'
   };
 })(typeof window !== 'undefined' ? window : globalThis);

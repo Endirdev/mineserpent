@@ -1,8 +1,8 @@
-/* Slither Local — canvas renderer. Reads the world, draws it. Mutates nothing. */
+/* Mineserpent — canvas renderer. Reads the world, draws it. Mutates nothing. */
 (function (global) {
   'use strict';
 
-  var S = global.Slither;
+  var S = global.Mineserpent;
 
   // ------------------------------------------------------------- colour
   function hexToRgb(hex) {
@@ -573,5 +573,5 @@
     }
   };
 
-  global.SlitherRender = Render;
+  global.MineserpentRender = Render;
 })(typeof window !== 'undefined' ? window : globalThis);

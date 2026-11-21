@@ -1,11 +1,11 @@
-/* Slither Local — glue: input, camera, UI, sound.
- * Talks to the simulation (Slither.World) and the painter (SlitherRender).
+/* Mineserpent — glue: input, camera, UI, sound.
+ * Talks to the simulation (Mineserpent.World) and the painter (MineserpentRender).
  */
 (function () {
   'use strict';
 
-  var S = window.Slither;
-  var R = window.SlitherRender;
+  var S = window.Mineserpent;
+  var R = window.MineserpentRender;
   var CFG = S.CFG;
 
   // ------------------------------------------------------------- dom
@@ -127,7 +127,7 @@
     dom.hud.classList.remove('hidden');
     sfx.start();
     sfx.spawn();
-    if (window.SlitherMusic) { window.SlitherMusic.duck(false); window.SlitherMusic.start(); }
+    if (window.MineserpentMusic) { window.MineserpentMusic.duck(false); window.MineserpentMusic.start(); }
   }
 
   function targetZoom() {
@@ -374,7 +374,7 @@
 
   function showDeath(killerName, cause) {
     state = 'dead';
-    if (window.SlitherMusic) window.SlitherMusic.duck(true);
+    if (window.MineserpentMusic) window.MineserpentMusic.duck(true);
     dom.hud.classList.add('hidden');
     dom.dead.classList.remove('hidden');
     // the camera line only earns its place when something actually got you
@@ -499,7 +499,7 @@
   buildSkins();
   dom.name.value = NAMES[Math.floor(Math.random() * NAMES.length)];
 
-  var M = window.SlitherMusic;
+  var M = window.MineserpentMusic;
   function paintMusicButtons() {
     var on = M.isEnabled();
     dom.music.textContent = 'Music: ' + (on ? 'on' : 'off');
@@ -554,7 +554,7 @@
   }
 
   // test/QA handle: lets a headless browser drive and inspect a live game
-  window.SlitherGame = {    world: function () { return world; },
+  window.MineserpentGame = {    world: function () { return world; },
     me: function () { return me; },
     state: function () { return state; },
     fps: function () { return fps; },

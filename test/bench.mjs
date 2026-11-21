@@ -1,4 +1,4 @@
-/* Headless performance benchmark for the Slither Local simulation.
+/* Headless performance benchmark for the Mineserpent simulation.
  *
  * Two fixed scenarios with a seeded PRNG, so runs are comparable across
  * commits:
@@ -40,8 +40,8 @@ function loadWorld(seed, difficulty) {
   vm.runInContext(src, sandbox);
   // Math is a context intrinsic, not a sandbox property: swap the PRNG inside the context
   vm.runInContext('Math.random = (' + mulberry32.toString() + ')(' + seed + ')', sandbox);
-  const world = new sandbox.Slither.World({ difficulty });
-  world.spawnSnake({ name: 'Bench', skin: sandbox.Slither.SKINS[0], player: true, bot: false, mass: 12 });
+  const world = new sandbox.Mineserpent.World({ difficulty });
+  world.spawnSnake({ name: 'Bench', skin: sandbox.Mineserpent.SKINS[0], player: true, bot: false, mass: 12 });
   return world;
 }
 
@@ -134,7 +134,7 @@ for (const [name, make] of scenarios) {
   });
 }
 
-console.log('--- Slither Local benchmark --------------------------');
+console.log('--- Mineserpent benchmark --------------------------');
 console.log(`reps per scenario: ${REPS} (median reported)`);
 for (const r of results) {
   console.log(`${r.scenario.padEnd(8)} mean ${r.meanMs.toFixed(3)}ms  p50 ${r.p50Ms.toFixed(3)}ms  p95 ${r.p95Ms.toFixed(3)}ms  max ${r.maxMs.toFixed(3)}ms   [~${r.meanSegs.toFixed(0)} body pts, ${r.meanFood.toFixed(0)} pellets]`);

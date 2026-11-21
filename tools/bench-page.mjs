@@ -1,5 +1,5 @@
 /* Browser render benchmark: drives the real page in headless Chrome and
- * times the two hot calls of a frame — world.step() and SlitherRender.draw().
+ * times the two hot calls of a frame — world.step() and MineserpentRender.draw().
  *
  * Requires google-chrome (or CHROME_PATH) and puppeteer-core:
  *   npm install --no-save puppeteer-core
@@ -34,7 +34,7 @@ await new Promise((r) => setTimeout(r, 2000));
 
 await tab.evaluate(`
   window.__bench = { step: [], draw: [] };
-  const W = window.Slither.World, R = window.SlitherRender;
+  const W = window.Mineserpent.World, R = window.MineserpentRender;
   const oStep = W.prototype.step;
   W.prototype.step = function (dt) {
     const t = performance.now(); oStep.call(this, dt);
@@ -56,7 +56,7 @@ async function phase(label, seconds, pre) {
       const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
       const mean = (a) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
       const stat = (a) => a.length ? { n: a.length, mean: mean(a), p50: pct(a, 0.5), p95: pct(a, 0.95), max: Math.max(...a) } : null;
-      const g = window.SlitherGame;
+      const g = window.MineserpentGame;
       const w = g.world();
       let segs = 0, onScreen = 0;
       for (const s of w.snakes) if (!s.dead) segs += s.pts.length;
@@ -69,7 +69,7 @@ async function phase(label, seconds, pre) {
 
 const calm = await phase('game   ', secs, null);
 const huge = await phase('stressed', secs, `
-  for (const s of window.SlitherGame.world().snakes) if (!s.dead) { s.mass = 900; s.score = 900; }
+  for (const s of window.MineserpentGame.world().snakes) if (!s.dead) { s.mass = 900; s.score = 900; }
 `);
 const results = [calm, huge];
 await browser.close();

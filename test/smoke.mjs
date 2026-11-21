@@ -1,4 +1,4 @@
-/* Headless smoke test for the Slither Local simulation.
+/* Headless smoke test for the Mineserpent simulation.
  * Loads js/core.js into a sandbox (no DOM), runs a long match, and asserts the
  * world behaves: nothing NaNs, snakes eat, snakes die, food stays stocked.
  *   node test/smoke.mjs
@@ -15,9 +15,9 @@ const sandbox = { console };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const S = sandbox.Slither;
+const S = sandbox.Mineserpent;
 
-if (!S) throw new Error('core.js did not expose Slither');
+if (!S) throw new Error('core.js did not expose Mineserpent');
 
 const STEPS = 60 * 90;               // 90 seconds of play
 const DT = 1 / 60;
@@ -73,7 +73,7 @@ const alive = world.snakes.filter((s) => !s.dead);
 const board = world.leaderboard(10);
 const player = world.snakes.filter((s) => s.player).pop();
 
-console.log('--- Slither Local smoke test -------------------------------');
+console.log('--- Mineserpent smoke test -------------------------------');
 console.log(`simulated      : ${(STEPS * DT).toFixed(0)}s of game time`);
 console.log(`world.step()   : ${stepMs.toFixed(0)}ms total, ${(stepMs / STEPS).toFixed(3)}ms per step (16.6ms = 1 frame)`);
 console.log(`snakes alive   : ${alive.length} (cap ${world.diffCfg.bots})`);
