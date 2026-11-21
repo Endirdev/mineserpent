@@ -42,12 +42,14 @@ slither-local/
 | Input | Action |
 | --- | --- |
 | Mouse | steer toward the cursor |
-| Hold left click **or** Space | boost (burns your own length, drops it as food behind you) |
+| Space **or** Shift | boost (burns your own length, drops it as food behind you) |
 | A / D, arrows | steer without a mouse |
+| Left click | dig **any** grid square on the board |
+| Right click | flag or unflag any grid square |
 | S / F | dig / flag the grid cell your head is on |
 | M | mute |
 | Esc | back to the menu |
-| Touch | drag to steer, the **Boost** button appears on small screens |
+| Touch | drag to steer, the **Boost**, **Dig** and **Flag** buttons appear on small screens |
 
 Rules, same as the real thing:
 
@@ -58,8 +60,9 @@ Rules, same as the real thing:
 - Boost is paid for with length, so a boosted snake shrinks.
 
 **The minefield** — this branch frankensteins a minesweeper onto the same grid: every
-world grid square hides either a safe cell or a mine (~9/12/15% by difficulty). The snake
-is the only cursor: `S` digs, `F` flags, always at the cell your **head** is on. Blanks
+world grid square hides either a safe cell or a mine (~9/12/15% by difficulty). A left
+click names any square and digs it, a right click flags or unflags it; `S` / `F` dig and
+flag the square your **head** is on, for when you would rather dig where you are. Blanks
 cascade, numbers with matching flags chord (dig again on a satisfied number and the rest
 of the ring opens). Hidden mines are inert — a snake slithers over them without trouble;
 only a dig detonates, and a blast chain-detonates neighbouring mines and kills the digger,

@@ -98,6 +98,7 @@
   var feedTimers = [];
 
   var input = { mx: 0, my: 0, boost: false, keyBoost: false, keys: {} };
+  var touchSeen = false;   // once a finger is about, taps steer only — they must not dig squares
 
   var NAMES = ['Slinky', 'Noodle', 'Rattlesnake', 'Anaconda', 'Boop', 'Zigzag', 'Mamba',
     'Wiggles', 'Coil', 'Hydra', 'Pythona', 'Slurp', 'Kobra', 'Twisty', 'Biscuit'];
@@ -136,28 +137,49 @@
   }
 
   // ------------------------------------------------------------- input
+  // world point under a pointer event — a click names a square on the board
+  function pointerWorld(e) {
+    var r = canvas.getBoundingClientRect();
+    var z = cam.zoom || 1;
+    return {
+      x: cam.x + (e.clientX - r.left - R.w / 2) / z,
+      y: cam.y + (e.clientY - r.top - R.h / 2) / z
+    };
+  }
+
   canvas.addEventListener('mousemove', function (e) {
     var r = canvas.getBoundingClientRect();
     input.mx = e.clientX - r.left;
     input.my = e.clientY - r.top;
+    // the square under the pointer is where a click would dig: mark it
+    if (world && state === 'playing' && me && !me.dead) world.hover = pointerWorld(e);
   });
   canvas.addEventListener('mousedown', function (e) {
-    if (e.button === 0) input.boost = true;
+    if (e.button !== 0 || touchSeen) return;   // right click flags; taps only steer
+    // left click now digs the square you aimed at — boosting is space / shift
+    var p = pointerWorld(e);
+    trySweeper(false, p.x, p.y);
+  });
+  canvas.addEventListener('contextmenu', function (e) {
+    if (touchSeen) return;
+    var p2 = pointerWorld(e);
+    trySweeper(true, p2.x, p2.y);
   });
   window.addEventListener('mouseup', function () { input.boost = false; });
   window.addEventListener('blur', function () { input.boost = false; input.keys = {}; });
 
   // ------------------------------------------------------------- sweeper
-  // The dig cursor is the cell under the snake's head — the only pointer in the game
-  // is the snake itself. Bots never dig; the minefield is the player's puzzle.
-  function trySweeper(flag) {
+  // Digging is mine to aim: a left click names any square on the board, while the
+  // keys and the touch buttons dig where the snake's head is. Bots never dig.
+  function trySweeper(flag, x, y) {
     if (!(world && state === 'playing' && me && !me.dead)) return;
+    if (x === undefined) { x = me.x(); y = me.y(); }   // keys / buttons: where you are
     if (flag) {
-      var f = world.flagCell(me, me.x(), me.y());
+      var f = world.flagCell(me, x, y);
       if (f === 'flag') sfx.blip(360, 0.07, 0.06, 'square');
       else if (f === 'unflag') sfx.blip(300, 0.05, 0.05, 'square');
     } else {
-      var r = world.digCell(me, me.x(), me.y());
+      var r = world.digCell(me, x, y);
       if (r === 'boom') sfx.blip(90, 0.5, 0.4, 'sawtooth');
       else if (r === 'chord') sfx.blip(980, 0.09, 0.07, 'triangle');
       else if (r) sfx.blip(720, 0.06, 0.06, 'sine');
@@ -185,10 +207,13 @@
   canvas.addEventListener('touchmove', handleTouch, { passive: false });
   function handleTouch(e) {
     e.preventDefault();
+    touchSeen = true;
     var t = e.touches[0];
     var r = canvas.getBoundingClientRect();
     input.mx = t.clientX - r.left;
     input.my = t.clientY - r.top;
+    // touch has no pointer parked on a square: the cursor goes back to the head
+    if (world) world.hover = null;
   }
   el('boostbtn').addEventListener('touchstart', function (e) { e.preventDefault(); input.boost = true; }, { passive: false });
   el('boostbtn').addEventListener('touchend', function (e) { e.preventDefault(); input.boost = false; }, { passive: false });
@@ -399,6 +424,9 @@
       sfx.boost(false);
     }
 
+    // the pointer target only exists during a run
+    if (world && !(state === 'playing' && me && !me.dead)) world.hover = null;
+
     // ---- camera
     var focus = (state === 'playing' && me && !me.dead) ? me : (ghost && !ghost.dead ? ghost : me);
     if (focus) {
@@ -511,7 +539,11 @@
     kill: function () { if (world && me && !me.dead) world.killSnake(me, world.leaderboard(1)[0]); },
     setMouse: function (x, y) { input.mx = x; input.my = y; },
     setBoost: function (on) { input.boost = on; },
-    dig: function () { if (world && me && !me.dead) return world.digCell(me, me.x(), me.y()); },
-    flag: function () { if (world && me && !me.dead) return world.flagCell(me, me.x(), me.y()); }
+    dig: function (x, y) {
+      if (world && me && !me.dead) return world.digCell(me, x === undefined ? me.x() : x, y === undefined ? me.y() : y);
+    },
+    flag: function (x, y) {
+      if (world && me && !me.dead) return world.flagCell(me, x === undefined ? me.x() : x, y === undefined ? me.y() : y);
+    }
   };
 })();

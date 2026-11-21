@@ -208,9 +208,19 @@
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
 
-      if (world.player && !world.player.dead) {
-        var hx = Math.floor(world.player.x() / c) - sw.ix0;
-        var hy = Math.floor(world.player.y() / c) - sw.iy0;
+      // the cursor marks where a dig lands: the square under the pointer when one is
+      // about, otherwise the head's square (keys and touch buttons dig where you are)
+      var tx = null, ty = null;
+      if (world.hover) {
+        tx = world.hover.x;
+        ty = world.hover.y;
+      } else if (world.player && !world.player.dead) {
+        tx = world.player.x();
+        ty = world.player.y();
+      }
+      if (tx !== null) {
+        var hx = Math.floor(tx / c) - sw.ix0;
+        var hy = Math.floor(ty / c) - sw.iy0;
         if (hx >= 0 && hy >= 0 && hx < sw.w && hy < sw.h && sw.inside[hy * sw.w + hx]) {
           var px = (sw.ix0 + hx) * c, py = (sw.iy0 + hy) * c;
           var pad = c * 0.06;
