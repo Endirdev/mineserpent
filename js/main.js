@@ -380,15 +380,18 @@
     if (cause === 'mine') {
       dom.deadTitle.textContent = 'You dug a mine';
       dom.deadBy.textContent = 'The minefield hides under the grid — mines only go off when you dig on them.';
-      el('spec').textContent = 'the board, not a snake';
+      // nothing chased us here, so the camera line would be a lie: hide it whole
+      el('dead-spec').classList.add('hidden');
     } else if (killerName) {
       dom.deadTitle.textContent = 'Eaten by ' + killerName;
       dom.deadBy.textContent = '';
       el('spec').textContent = killerName;
+      el('dead-spec').classList.remove('hidden');
     } else {
       dom.deadTitle.textContent = 'You hit the wall';
       dom.deadBy.textContent = 'The red ring is not a fence.';
       el('spec').textContent = 'the snake that got you';
+      el('dead-spec').classList.remove('hidden');
     }
     dom.deadLength.textContent = Math.round(me.score);
     dom.deadKills.textContent = me.kills;
