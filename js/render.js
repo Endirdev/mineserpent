@@ -152,6 +152,12 @@
       var numFont = '700 ' + fs + 'px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      // paint strictly inside the arena circle: edge cells are playable (their centre
+      // is in), but their squares must be cut by the ring, like the grid lines do
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
+      ctx.clip();
       for (var ly = ly0; ly <= ly1; ly++) {
         var wy = (sw.iy0 + ly) * c;
         for (var lx = lx0; lx <= lx1; lx++) {
@@ -195,6 +201,7 @@
           ctx.strokeRect(px + pad, py + pad, c - 2 * pad, c - 2 * pad);
         }
       }
+      ctx.restore();
     },
 
     drawFlag: function (ctx, x, y, c) {
@@ -404,6 +411,10 @@
       // cleared minefield area, so routes across the board are visible
       var sw = world.sweeper;
       if (sw) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, world.radius * scale, 0, Math.PI * 2);
+        ctx.clip();
         ctx.fillStyle = 'rgba(123,255,176,0.14)';
         var s1 = Math.max(1.4, sw.cell * scale);
         for (var i2 = 0; i2 < sw.w * sw.h; i2++) {
@@ -412,6 +423,7 @@
           ctx.fillRect(cx + (sw.ix0 + lxx + 0.5) * sw.cell * scale - s1 / 2,
                        cy + (sw.iy0 + lyy + 0.5) * sw.cell * scale - s1 / 2, s1, s1);
         }
+        ctx.restore();
       }
 
       for (var i = 0; i < world.snakes.length; i++) {
