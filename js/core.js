@@ -74,7 +74,6 @@
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
   function rand(a, b) { return a + Math.random() * (b - a); }
   function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
-  function dist(ax, ay, bx, by) { var dx = bx - ax, dy = by - ay; return Math.sqrt(dx * dx + dy * dy); }
   function normAngle(a) {
     while (a > Math.PI) a -= Math.PI * 2;
     while (a < -Math.PI) a += Math.PI * 2;
@@ -97,6 +96,21 @@
     var bucket = this.cells.get(key);
     if (bucket) bucket.push(item); else this.cells.set(key, [item]);
     return item;
+  };
+  // Visit every item in cells overlapping a square around (x,y) without copying
+  // buckets into an array first. Hot paths filter aggressively, so materializing
+  // the full result (the old shared-scratch query) was pure overhead.
+  Grid.prototype.each = function (x, y, r, fn) {
+    var c = this.cell;
+    var x0 = Math.floor((x - r) / c), x1 = Math.floor((x + r) / c);
+    var y0 = Math.floor((y - r) / c), y1 = Math.floor((y + r) / c);
+    for (var ix = x0; ix <= x1; ix++) {
+      for (var iy = y0; iy <= y1; iy++) {
+        var bucket = this.cells.get((ix + 4096) * 8192 + (iy + 4096));
+        if (!bucket) continue;
+        for (var i = 0; i < bucket.length; i++) fn(bucket[i]);
+      }
+    }
   };
   // Collect items in cells overlapping a square around (x,y). Returns a reused array.
   var _scratch = [];
@@ -220,10 +234,11 @@
       for (var i = 0; i < this.snakes.length; i++) {
         var s = this.snakes[i];
         if (s.dead) continue;
-        var dd = dist(x, y, s.x(), s.y());
-        if (dd < 520) near += 520 - dd;
+        var sdx = s.x() - x, sdy = s.y() - y;
+        var sd2 = sdx * sdx + sdy * sdy;
+        if (sd2 < 270400) near += 520 - Math.sqrt(sd2);
       }
-      var score = -near + dist(x, y, 0, 0) * 0.05;
+      var score = -near + Math.sqrt(x * x + y * y) * 0.05;
       if (score > bestScore) { bestScore = score; best = { x: x, y: y }; }
     }
     var mass = opts.mass || (CFG.snake.startMass * (0.7 + Math.random() * 0.9) * this.diffCfg.massMul);
@@ -245,64 +260,96 @@
 
   // ---------------------------------------------------------------- steering
   // Pick the safest, most profitable heading by scoring candidate angles.
+  // Everything a heading needs is precomputed once per decision — threat
+  // vectors relative to the head, pellet weights, and unit aim vectors —
+  // so the 17-heading loop is pure multiply-adds instead of recomputing
+  // the same distances and normalizations seventeen times over.
   function steerBot(w, s, dt) {
     var cfg = CFG.bot, d = w.diffCfg;
     var scanR = cfg.scanR * d.lookMul * (0.8 + s.personality * 0.5);
     var probeLen = cfg.probeLen * d.lookMul;
+    var sx = s.x(), sy = s.y();
 
-    // 1. nearby enemy body segments (threats)
-    var raw = w.segGrid.query(s.x(), s.y(), scanR + 60);
+    // 1. nearby enemy body segments (threats), as vectors relative to the head
     var threats = [];
-    for (var i = 0; i < raw.length; i++) {
-      var it = raw[i];
-      if (it.owner === s) continue;
-      var dd = dist(s.x(), s.y(), it.x, it.y);
-      if (dd > scanR + it.r) continue;
-      threats.push(it);
-    }
+    w.segGrid.each(sx, sy, scanR + 60, function (it) {
+      if (it.owner === s) return;
+      var tvx = it.x - sx, tvy = it.y - sy;
+      var td2 = tvx * tvx + tvy * tvy;
+      var lim = scanR + it.r;
+      if (td2 > lim * lim) return;
+      threats.push({ vx: tvx, vy: tvy, need: 0, d2: td2, r: it.r });
+    });
     // keep only the closest ones — the body is dense, the near part is what kills you
     if (threats.length > cfg.maxThreats) {
-      threats.sort(function (a, b) {
-        return (dist(s.x(), s.y(), a.x, a.y) - dist(s.x(), s.y(), b.x, b.y));
-      });
+      threats.sort(function (a, b) { return a.d2 - b.d2; });
       threats.length = cfg.maxThreats;
     }
+    var safeRad = s.r + 26;
+    for (var t0 = 0; t0 < threats.length; t0++) threats[t0].need = safeRad + threats[t0].r;
 
-    // 2. food to eat (capped: a bot only weighs the handful of pellets it can reach soon)
+    // 2. food to eat (capped: a bot only weighs the handful of pellets it can reach soon).
+    // each pellet collapses to a single weight times the heading dot product.
     var bites = [];
-    var foodRaw = w.foodGrid.query(s.x(), s.y(), cfg.foodScanR);
-    for (var f = 0; f < foodRaw.length; f++) {
-      var fd = dist(s.x(), s.y(), foodRaw[f].x, foodRaw[f].y);
-      if (fd < cfg.foodScanR) bites.push(foodRaw[f]);
-      if (bites.length >= 22) break;
-    }
+    var scanR2 = cfg.foodScanR * cfg.foodScanR;
+    w.foodGrid.each(sx, sy, cfg.foodScanR, function (fd) {
+      if (bites.length >= 22) return;
+      var fx0 = fd.x - sx, fy0 = fd.y - sy;
+      var d2f = fx0 * fx0 + fy0 * fy0;
+      if (d2f < scanR2) {
+        var fl = Math.sqrt(d2f) || 1;
+        bites.push({ x: fx0, y: fy0, fl: fl, w: fd.v * 26 * (1 - fl / cfg.foodScanR) / fl });
+      }
+    });
 
     // 3. prey: a smaller snake worth hunting
-    var prey = null, preyD = Infinity;
+    var prey = null, preyD2 = Infinity;
     for (var p = 0; p < w.snakes.length; p++) {
       var o = w.snakes[p];
       if (o === s || o.dead || o.grace > 0) continue;
       if (o.mass < s.mass * 0.8) {
-        var pd = dist(s.x(), s.y(), o.x(), o.y());
-        if (pd < 900 && pd < preyD) { preyD = pd; prey = o; }
+        var pdx = o.x() - sx, pdy = o.y() - sy;
+        var pd2 = pdx * pdx + pdy * pdy;
+        if (pd2 < 810000 && pd2 < preyD2) { preyD2 = pd2; prey = o; }
       }
     }
     // ...and a hunter worth fleeing
-    var hunter = null, hunterD = Infinity;
+    var hunter = null, hunterD2 = Infinity;
     for (var h = 0; h < w.snakes.length; h++) {
       var q = w.snakes[h];
       if (q === s || q.dead || q.grace > 0) continue;
       if (q.mass > s.mass * 1.25) {
-        var hd = dist(s.x(), s.y(), q.x(), q.y());
-        if (hd < 700 && hd < hunterD) { hunterD = hd; hunter = q; }
+        var hdx = q.x() - sx, hdy = q.y() - sy;
+        var hd2 = hdx * hdx + hdy * hdy;
+        if (hd2 < 490000 && hd2 < hunterD2) { hunterD2 = hd2; hunter = q; }
       }
     }
+    var preyD = Math.sqrt(preyD2), hunterD = Math.sqrt(hunterD2);
 
-    var centerPull = 0;
-    var dc = dist(s.x(), s.y(), 0, 0);
-    if (dc > w.radius * 0.62) centerPull = (dc - w.radius * 0.62) / (w.radius * 0.38);
+    // unit aim vectors for the directional rewards: constant across headings
+    var huntX = 0, huntY = 0, huntW = 0;
+    if (prey) {
+      var ipx = prey.x() + Math.cos(prey.angle) * preyD * 0.32 - sx;
+      var ipy = prey.y() + Math.sin(prey.angle) * preyD * 0.32 - sy;
+      var il = Math.sqrt(ipx * ipx + ipy * ipy) || 1;
+      huntX = ipx / il; huntY = ipy / il;
+      huntW = 26 + s.personality * 34;
+    }
+    var fleeX = 0, fleeY = 0, fleeW = 0;
+    if (hunter) {
+      var hx0 = sx - hunter.x(), hy0 = sy - hunter.y();
+      var hl = Math.sqrt(hx0 * hx0 + hy0 * hy0) || 1;
+      fleeX = hx0 / hl; fleeY = hy0 / hl;
+      fleeW = 40 * (1 - hunterD / 700);
+    }
+    var centerPull = 0, toCX = 0, toCY = 0;
+    var dc = Math.sqrt(sx * sx + sy * sy);
+    if (dc > w.radius * 0.62) {
+      centerPull = (dc - w.radius * 0.62) / (w.radius * 0.38);
+      var cl = dc || 1;
+      toCX = -sx / cl; toCY = -sy / cl;
+    }
 
-    var safeRad = s.r + 26;
     var N = cfg.headings, span = 2.5;                 // candidate headings, radians
     var best = s.angle, bestScore = -Infinity;
 
@@ -314,13 +361,10 @@
       var danger = 0;
       for (var t = 0; t < threats.length; t++) {
         var th = threats[t];
-        var vx = th.x - s.x(), vy = th.y - s.y();
-        var along = vx * ca + vy * sa;
-        if (along <= 0) continue;
-        if (along > probeLen) continue;
-        var perp = Math.abs(vx * sa - vy * ca);
-        var need = safeRad + th.r;
-        if (perp < need) danger += (probeLen - along) * (need - perp) * 0.06;
+        var along = th.vx * ca + th.vy * sa;
+        if (along <= 0 || along > probeLen) continue;
+        var perp = Math.abs(th.vx * sa - th.vy * ca);
+        if (perp < th.need) danger += (probeLen - along) * (th.need - perp) * 0.06;
       }
 
       var score = -danger * 12;
@@ -328,37 +372,22 @@
       // food: reward headings that point at value
       for (var b2 = 0; b2 < bites.length; b2++) {
         var bite = bites[b2];
-        var fx = bite.x - s.x(), fy = bite.y - s.y();
-        var fl = Math.sqrt(fx * fx + fy * fy) || 1;
-        var dot = (fx * ca + fy * sa) / fl;
-        if (dot > 0.2) score += bite.v * dot * 26 * (1 - fl / cfg.foodScanR);
+        var dot = bite.x * ca + bite.y * sa;
+        if (dot > 0.2 * bite.fl) score += bite.w * dot;
       }
 
       // hunt: aim at where the prey is going, not where it is
-      if (prey) {
-        var ipx = prey.x() + Math.cos(prey.angle) * preyD * 0.32 - s.x();
-        var ipy = prey.y() + Math.sin(prey.angle) * preyD * 0.32 - s.y();
-        var il = Math.sqrt(ipx * ipx + ipy * ipy) || 1;
-        var hd2 = (ipx * ca + ipy * sa) / il;
-        score += hd2 * (26 + s.personality * 34);
-      }
+      if (prey) score += (huntX * ca + huntY * sa) * huntW;
 
       // flee: point away from bigger snakes
-      if (hunter) {
-        var hx = s.x() - hunter.x(), hy = s.y() - hunter.y();
-        var hl = Math.sqrt(hx * hx + hy * hy) || 1;
-        score += ((hx * ca + hy * sa) / hl) * 40 * (1 - hunterD / 700);
-      }
+      if (hunter) score += (fleeX * ca + fleeY * sa) * fleeW;
 
       // stay inside the ring
-      if (centerPull > 0) {
-        var cx = -s.x(), cy = -s.y();
-        var cl = Math.sqrt(cx * cx + cy * cy) || 1;
-        score += ((cx * ca + cy * sa) / cl) * 110 * centerPull;
-      }
+      if (centerPull > 0) score += (toCX * ca + toCY * sa) * 110 * centerPull;
 
-      // prefer small course corrections (smooth, lifelike steering)
-      var turn = Math.abs(normAngle(a - s.angle));
+      // prefer small course corrections (smooth, lifelike steering) — a candidate
+      // sits within span/2 of s.angle, so the offset never needs wrapping
+      var turn = a - s.angle;
       score -= turn * turn * 9;
 
       if (score > bestScore) { bestScore = score; best = a; }
@@ -408,33 +437,40 @@
   }
 
   World.prototype.eatFood = function (s, dt) {
-    var reach = s.r + 34;
-    var near = this.foodGrid.query(s.x(), s.y(), reach + 20);
+    var sx = s.x(), sy = s.y();
+    var reach = s.r + 34, reach2 = reach * reach;
+    var mouth = s.r + 4;
     var ate = false;
-    for (var i = 0; i < near.length; i++) {
-      var f = near[i];
-      if (f.eaten) continue;
-      var d = dist(s.x(), s.y(), f.x, f.y) || 1;
-      if (d < s.r + f.r + 4) {
+    this.foodGrid.each(sx, sy, reach + 20, function (f) {
+      if (f.eaten) return;
+      var fx = f.x - sx, fy = f.y - sy;
+      var d2 = fx * fx + fy * fy;
+      var need = mouth + f.r;
+      if (d2 < need * need) {
         f.eaten = true;
         s.mass += f.v;
         s.score += f.v;
         s.eaten += 1;
         ate = true;
-      } else if (d < reach) {
+      } else if (d2 < reach2) {
         // gentle magnet so pellets drift into the mouth
+        var d = Math.sqrt(d2) || 1;
         var pull = (1 - d / reach) * 90 * dt;
-        f.x += (s.x() - f.x) / d * pull;
-        f.y += (s.y() - f.y) / d * pull;
+        f.x += (sx - f.x) / d * pull;
+        f.y += (sy - f.y) / d * pull;
       }
-    }
+    });
     return ate;
   };
 
   World.prototype.compactFood = function () {
-    for (var j = this.food.length - 1; j >= 0; j--) {
-      if (this.food[j].eaten) this.food.splice(j, 1);
+    // swap-remove: eaten pellets are sparse, and splice() shuffles the whole
+    // tail of the array for each one
+    var food = this.food, j = food.length - 1;
+    for (var i = j; i >= 0; i--) {
+      if (food[i].eaten) { food[i] = food[j]; j--; }
     }
+    food.length = j + 1;
   };
 
   World.prototype.growBody = function (s, dropFood, dt) {
@@ -764,17 +800,20 @@
       var hx = s.x(), hy = s.y();
 
       // the wall kills
-      if (dist(hx, hy, 0, 0) > this.radius - s.r) { doomed.push([s, null]); continue; }
+      var wall = this.radius - s.r;
+      if (hx * hx + hy * hy > wall * wall) { doomed.push([s, null]); continue; }
 
-      var near = this.segGrid.query(hx, hy, s.r + 40);
-      var hitD = Infinity, hit = null;
-      for (var n = 0; n < near.length; n++) {
-        var it2 = near[n];
-        if (it2.owner === s) continue;
-        var d2 = dist(hx, hy, it2.x, it2.y);
-        // forgiving: only a real touch counts, and grazing a tail tip is safe
-        if (d2 < it2.r + s.r * 0.55 && d2 < hitD) { hitD = d2; hit = it2; }
-      }
+      // squared-distance touch test: forgiving, only a real touch counts, and
+      // grazing a tail tip is safe — no sqrt anywhere in this scan
+      var hit = null, hitD2 = Infinity;
+      var soft = s.r * 0.55;
+      this.segGrid.each(hx, hy, s.r + 40, function (it) {
+        if (it.owner === s) return;
+        var dx = it.x - hx, dy = it.y - hy;
+        var d2 = dx * dx + dy * dy;
+        var need = it.r + soft;
+        if (d2 < need * need && d2 < hitD2) { hitD2 = d2; hit = it; }
+      });
       if (hit) {
         doomed.push([s, hit.owner]);
         if (hit.idx === 0 && hit.owner.grace <= 0) doomed.push([hit.owner, s]);   // head-to-head: both lose

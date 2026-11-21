@@ -35,9 +35,40 @@
   }
 
   var FOOD_TINT = ['#8ef7ff', '#ffe27a', '#b6ff7a', '#ff9bd0'];
+  // the glow colour of each pellet hue, built once — the painter used to
+  // assemble these strings (and the sweeper washes below) per pellet per frame
+  var FOOD_GLOW = FOOD_TINT.map(function (c) { return rgba(c, 0.10); });
 
   // minesweeper number colours, indexed by the adjacent-mine count
   var NUM_TINT = ['', '#3fa7ff', '#7bffb0', '#ff5d6d', '#8b7bff', '#ffd166', '#c47bff', '#9fe8ff', '#ff8a4c'];
+
+  // paint strings shared by every cell/frame; built from LOOK at boot. LOOK is a
+  // frozen settings table, so deriving these once is safe.
+  function buildPaints(LK) {
+    return {
+      washFlag: rgba('#ff4a5a', LK.washFlag),
+      washMine: rgba('#ff4058', LK.washMine),
+      washRevealed: rgba('#689ef0', LK.washRevealed),
+      cursor: rgba('#7bffb0', LK.cursorAlpha),
+    };
+  }
+
+  // per-skin paint: the rim/stripe/head/boost colours only depend on the skin,
+  // so shade() runs once per skin for the whole session instead of per snake
+  // per frame — ~150 string allocations a frame retired.
+  function skinPaint(skin, LK) {
+    if (!skin.paint) {
+      skin.paint = {
+        rimPlayer: shadeAlpha(skin.a, 0.8, LK.rimAlpha),
+        rimBot: shadeAlpha(skin.a, -0.5, LK.rimAlpha),
+        stripe: rgba(skin.b, LK.stripeAlpha),
+        headPlayer: shade(skin.a, 0.8),
+        headBot: shade(skin.a, -0.5),
+        glow: shadeAlpha(skin.a, 0.6, 0.3),
+      };
+    }
+    return skin.paint;
+  }
 
   // ------------------------------------------------------------- renderer
   var Render = {
@@ -63,10 +94,12 @@
     w: 0,
     h: 0,
     vignette: null,
+    paints: null,
 
     init: function (canvas) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d', { alpha: false });
+      this.paints = buildPaints(this.LOOK);
       this.resize();
       var self = this;
       global.addEventListener('resize', function () { self.resize(); });
@@ -184,17 +217,17 @@
           var wx = (sw.ix0 + lx) * c;
           var st = sw.state[i];
           if (st === 2) {
-            ctx.fillStyle = rgba('#ff4a5a', LK.washFlag);
+            ctx.fillStyle = this.paints.washFlag;
             ctx.fillRect(wx, wy, c, c);
             this.drawFlag(ctx, wx, wy, c);
           } else if (st === 0) {
             continue;   // hidden cells are just the grid
           } else if (sw.mine[i]) {
-            ctx.fillStyle = rgba('#ff4058', LK.washMine);
+            ctx.fillStyle = this.paints.washMine;
             ctx.fillRect(wx, wy, c, c);
             this.drawMine(ctx, wx, wy, c);
           } else {
-            ctx.fillStyle = rgba('#689ef0', LK.washRevealed);
+            ctx.fillStyle = this.paints.washRevealed;
             ctx.fillRect(wx, wy, c, c);
             var n = sw.adj[i];
             if (n > 0) {
@@ -224,7 +257,7 @@
         if (hx >= 0 && hy >= 0 && hx < sw.w && hy < sw.h && sw.inside[hy * sw.w + hx]) {
           var px = (sw.ix0 + hx) * c, py = (sw.iy0 + hy) * c;
           var pad = c * 0.06;
-          ctx.strokeStyle = rgba('#7bffb0', LK.cursorAlpha);
+          ctx.strokeStyle = this.paints.cursor;
           ctx.lineWidth = Math.max(1.2, c * 0.02);
           ctx.strokeRect(px + pad, py + pad, c - 2 * pad, c - 2 * pad);
         }
@@ -340,14 +373,14 @@
         var f = food[i];
         if (f.eaten) continue;
         if (f.x < left || f.x > right || f.y < top || f.y > bottom) continue;
-        var col = FOOD_TINT[f.hue % FOOD_TINT.length];
+        var idx = f.hue % FOOD_TINT.length;
         ctx.beginPath();
         ctx.arc(f.x, f.y, f.r * 2.1, 0, Math.PI * 2);
-        ctx.fillStyle = rgba(col, 0.10);
+        ctx.fillStyle = FOOD_GLOW[idx];
         ctx.fill();
         ctx.beginPath();
         ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
-        ctx.fillStyle = col;
+        ctx.fillStyle = FOOD_TINT[idx];
         ctx.fill();
       }
       ctx.globalCompositeOperation = 'source-over';
@@ -360,6 +393,16 @@
       }
       var l = pts[pts.length - 1];
       return l.x > left && l.x < right && l.y > top && l.y < bottom;
+    },
+
+    // dash patterns reused between frames: rounding the band to 0.1px means one
+    // cached array covers every snake whose tube width lands in the same tenth
+    _dashCache: Object.create(null),
+    dashFor: function (band) {
+      var k = band.toFixed(1);
+      var a = this._dashCache[k];
+      if (!a) a = this._dashCache[k] = [band, band];
+      return a;
     },
 
     drawSnakes: function (ctx, world, left, top, right, bottom, zoom) {
@@ -376,9 +419,14 @@
       }
       list.sort(function (a, b) { return b.mass - a.mass; });
 
+      var LK = this.LOOK;
+      // nameplate font is the same for every snake in a frame — build it once
+      var fs = Math.max(9, Math.round(13 / zoom));
+      var nameFont = '600 ' + fs + 'px system-ui, sans-serif';
+
       for (var k = 0; k < list.length; k++) {
         var s2 = list[k];
-        var pts = s2.pts, r = s2.r, skin = s2.skin;
+        var pts = s2.pts, r = s2.r, paint = skinPaint(s2.skin, LK);
         var blinking = s2.grace > 0 && (Math.floor(s2.grace * 8) % 2 === 0);
         ctx.globalAlpha = blinking ? 0.45 : 1;
 
@@ -389,7 +437,7 @@
 
         if (s2.boost) {
           ctx.lineWidth = 2 * r + 18;
-          ctx.strokeStyle = shadeAlpha(skin.a, 0.6, 0.3);
+          ctx.strokeStyle = paint.glow;
           ctx.stroke();
         }
 
@@ -397,21 +445,20 @@
         // a segments (rim included) are opaque and hide the board, the b stripes are
         // translucent windows so minesweeper marks under the snake read through them,
         // dimmed by the stripe colour — genuinely "from behind"
-        var LK = this.LOOK;
-        var band = Math.max(9, r * LK.bandMul);
+        var band = Math.round(Math.max(9, r * LK.bandMul) * 10) / 10;   // 0.1px step: matches the dash cache
         ctx.save();
         ctx.lineCap = 'butt';
-        ctx.setLineDash([band, band]);
+        ctx.setLineDash(this.dashFor(band));
         ctx.lineDashOffset = 0;
         ctx.lineWidth = 2 * r + 5;
-        ctx.strokeStyle = s2.player ? shadeAlpha(skin.a, 0.8, LK.rimAlpha) : shadeAlpha(skin.a, -0.5, LK.rimAlpha);
+        ctx.strokeStyle = s2.player ? paint.rimPlayer : paint.rimBot;
         ctx.stroke();
         ctx.lineWidth = 2 * r;
-        ctx.strokeStyle = skin.a;
+        ctx.strokeStyle = s2.skin.a;
         ctx.stroke();
         ctx.lineDashOffset = band;    // half a period over: fills exactly the gaps
         ctx.lineWidth = 2 * r;
-        ctx.strokeStyle = rgba(skin.b, LK.stripeAlpha);
+        ctx.strokeStyle = paint.stripe;
         ctx.stroke();
         ctx.restore();
 
@@ -420,19 +467,18 @@
           var hxp = pts[0].x, hyp = pts[0].y;
           ctx.beginPath();
           ctx.arc(hxp, hyp, r + 2.5, 0, Math.PI * 2);
-          ctx.fillStyle = s2.player ? shade(skin.a, 0.8) : shade(skin.a, -0.5);
+          ctx.fillStyle = s2.player ? paint.headPlayer : paint.headBot;
           ctx.fill();
           ctx.beginPath();
           ctx.arc(hxp, hyp, r, 0, Math.PI * 2);
-          ctx.fillStyle = skin.a;
+          ctx.fillStyle = s2.skin.a;
           ctx.fill();
         }
 
         this.drawFace(ctx, s2, zoom);
 
         // nameplate
-        var fs = Math.max(9, Math.round(13 / zoom));
-        ctx.font = '600 ' + fs + 'px system-ui, sans-serif';
+        ctx.font = nameFont;
         ctx.textAlign = 'center';
         ctx.fillStyle = s2.player ? '#ffffff' : 'rgba(226,236,255,0.72)';
         ctx.fillText(s2.name, pts[0].x, pts[0].y - r - fs * 0.9);
