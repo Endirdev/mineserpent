@@ -427,23 +427,25 @@
   // skip is what left a new tail piece folded 180 degrees into the body.
   function moveBody(s, reach) {
     var pts = s.pts, spacing = CFG.snake.segSpacing;
-    pts[0].x = s.x();
-    pts[0].y = s.y();
+    var n = pts.length;
     var ux = -Math.cos(s.angle), uy = -Math.sin(s.angle);   // tail-ward tangent
-    for (var i = 1; i < pts.length; i++) {
+    // the head is already placed by the caller; one reciprocal per link replaces
+    // the three divisions the stretch step used to need
+    for (var i = 1; i < n; i++) {
       var a = pts[i - 1], b = pts[i];
       var dx = a.x - b.x, dy = a.y - b.y;
       var d = Math.sqrt(dx * dx + dy * dy);
-      var want = (i + 1 === pts.length) ? spacing + reach : spacing;
+      var want = (i === n - 1) ? spacing + reach : spacing;
       if (d < 1e-6) {
         b.x = a.x + ux * want;
         b.y = a.y + uy * want;
       } else {
-        var t = (d - want) / d;
+        var invd = 1 / d;
+        var t = 1 - want * invd;
         b.x += dx * t;
         b.y += dy * t;
-        ux = -dx / d;
-        uy = -dy / d;
+        ux = -dx * invd;
+        uy = -dy * invd;
       }
     }
   }
