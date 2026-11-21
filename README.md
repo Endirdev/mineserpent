@@ -67,6 +67,8 @@ credited honestly on the death card ("You dug a mine", not "you hit the wall"). 
 ~1300 safe cells and the feed awards +60 length. The cleared area paints onto the minimap
 so you can plan routes across the board, and the death card reports how much you swept.
 The two games never otherwise interact: bots never dig, and mines never touch movement.
+The first dig of every run is a guaranteed safe probe — if a mine sat under it, the mine
+just moves to a hidden cell somewhere else (spawn cells are mine-free for the same reason).
 
 ## Running the tests
 

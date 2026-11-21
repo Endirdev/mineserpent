@@ -146,6 +146,7 @@
     this.speed = massToSpeed(this.mass);
     this.kills = 0;
     this.eaten = 0;
+    this.digsMade = 0;     // dig counter: the first dig of a run never hits a mine
     this.dead = false;
     this.grace = CFG.snake.graceTime;
     this.boostWish = false;
@@ -501,22 +502,34 @@
     sw.neigh(i, function (j) { sw.recount(j); });
   };
 
-  // A snake must never appear on a mined cell: the mine moves somewhere harmless.
-  World.prototype.sweeperMakeSafe = function (x, y) {
+  // Move the mine under cell i to a random still-hidden cell, keeping the mine count
+  // exact (numbers around both ends are re-counted). If avoid is given, the mine may
+  // not land on that cell or its ring.
+  World.prototype.relocateMine = function (i, avoid) {
     var sw = this.sweeper;
-    var i = sw.at(x, y);
-    if (i < 0 || !sw.mine[i]) return;
+    if (i < 0 || !sw.mine[i]) return false;
+    var near = function (j) {
+      if (avoid === undefined || j === avoid) return j === avoid && avoid !== undefined;
+      var ax = avoid % sw.w, ay = (avoid - ax) / sw.w;
+      var jx = j % sw.w, jy = (j - jx) / sw.w;
+      return Math.abs(ax - jx) <= 1 && Math.abs(ay - jy) <= 1;
+    };
     for (var tries = 0; tries < 800; tries++) {
       var j = Math.floor(Math.random() * sw.w * sw.h);
-      if (j !== i && sw.inside[j] && !sw.mine[j]) {
-        sw.mine[i] = 0;
-        sw.mine[j] = 1;
-        this.fixAdj(i);
-        this.fixAdj(j);
-        return;
-      }
+      if (j === i || !sw.inside[j] || sw.mine[j] || sw.state[j] !== 0 || near(j)) continue;
+      sw.mine[i] = 0;
+      sw.mine[j] = 1;
+      this.fixAdj(i);
+      this.fixAdj(j);
+      return true;
     }
-    sw.mine[i] = 0;                    // nowhere to move it — disarm the spawn cell
+    sw.mine[i] = 0;   // nowhere to move it — disarm in place
+    return true;
+  };
+
+  World.prototype.sweeperMakeSafe = function (x, y) {
+    var i = this.sweeper.at(x, y);
+    if (i >= 0) this.relocateMine(i, i);
   };
 
   World.prototype.revealSafeCell = function (i) {
@@ -532,11 +545,15 @@
   };
 
   // Dig at world (x, y): 'dig' | 'chord' | 'boom' | null. Numbers with as many flags
-  // around as they show get chored: every other neighbour opens at once.
+  // around as they show get chored: every other neighbour opens at once. The very
+  // first dig of a snake is protected: a mine under the probe moves aside first.
   World.prototype.digCell = function (s, x, y) {
     var sw = this.sweeper;
     var i = sw.at(x, y);
     if (i < 0 || sw.state[i] === 2) return null;
+    var first = s.digsMade === 0;
+    s.digsMade += 1;
+    if (first && sw.mine[i] && sw.state[i] === 0) this.relocateMine(i);
     if (sw.mine[i]) return sw.state[i] === 1 ? null : this.explodeAt(s, i);
     if (sw.state[i] === 1) return this.chordAt(s, i);
     var self = this;
@@ -565,7 +582,10 @@
       if (sw.mine[j]) { if (boom < 0 && sw.state[j] !== 1) boom = j; return; }
       if (self.revealSafeCell(j)) got++;
     });
-    if (boom >= 0) return this.explodeAt(s, boom);
+    if (boom >= 0) {
+      if (s.digsMade === 1) this.relocateMine(boom, i);   // first attempt: the chord stays safe
+      else return this.explodeAt(s, boom);
+    }
     return got > 0 ? 'chord' : null;
   };
 

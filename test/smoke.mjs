@@ -224,6 +224,10 @@ function testDigSafe() {
 function testBoom() {
   const w = arena();
   const s = make(w, 0, 0, 0);
+  // spend the free safe probe first, so digging a mine is allowed at all
+  const probe = findCell(w, (ww, ii) => ww.sweeper.inside[ii] && !ww.sweeper.mine[ii] && ww.sweeper.adj[ii] > 0);
+  const [px, py] = sweeperCell(w, probe);
+  assert(w.digCell(s, px, py) === 'dig', 'the first dig opens a safe cell');
   const i = findCell(w, (ww, ii) => ww.sweeper.mine[ii]);
   const [x, y] = sweeperCell(w, i);
   w.effects.length = 0;
@@ -232,6 +236,23 @@ function testBoom() {
   assert(w.events.some((e) => e.cause === 'mine'), 'the death is credited to the mine, not the wall');
   assert(w.effects.length >= 2, 'the blast and the death both make visible effects');
   assert(w.sweeper.state[i] === 1, 'the mine that went off shows itself');
+}
+
+function testFirstDigSafe() {
+  const w = arena();
+  const s = make(w, 0, 0, 0);
+  const sw = w.sweeper;
+  const i = findCell(w, (ww, ii) => ww.sweeper.mine[ii]);
+  const [x, y] = sweeperCell(w, i);
+  const before = sw.minesTotal;
+  assert(w.digCell(s, x, y) === 'dig', 'the first dig never detonates, even on a mine');
+  assert(!s.dead, 'the snake survives its first dig');
+  assert(sw.state[i] === 1, 'the probed cell opens as safe');
+  assert(sw.minesTotal === before, 'the mine was moved aside, not deleted');
+  const j = findCell(w, (ww, ii) => ww.sweeper.mine[ii] && ww.sweeper.state[ii] === 0);
+  const [jx, jy] = sweeperCell(w, j);
+  assert(w.digCell(s, jx, jy) === 'boom', 'protection is only the first dig — the second detonates');
+  assert(s.dead, 'and the snake dies on it as usual');
 }
 
 function testFlagGuard() {
@@ -311,6 +332,7 @@ testBoost();
 testMinefield();
 testDigSafe();
 testBoom();
+testFirstDigSafe();
 testFlagGuard();
 testChord();
 testClearBoard();
