@@ -41,8 +41,8 @@
 
   // ------------------------------------------------------------- renderer
   var Render = {
-    // playground knobs, live-tunable: window.SlitherRender.LOOK.stripeAlpha = 0.4 from
-    // the console, or straight from the URL: index.html?stripeAlpha=0.4&veilAlpha=0.3
+    // the look: one table of frozen paint settings, so the draw code reads them by
+    // name instead of scattering magic numbers through the strokes.
     LOOK: {
       stripeAlpha: 0.86,  // glass: opacity of the b-stripe windows (1 = solid stripes,
                           //       0 = board shows fully through the windows)
