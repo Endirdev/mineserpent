@@ -97,7 +97,6 @@
       this.drawBoundary(ctx, world, zoom);
       this.drawFood(ctx, world, left, top, right, bottom);
       this.drawSnakes(ctx, world, left, top, right, bottom, zoom);
-      this.drawSweeperOverlay(ctx, world, left, top, right, bottom, zoom);
       this.drawEffects(ctx, world, zoom);
 
       // ---- vignette (screen space)
@@ -200,49 +199,6 @@
           ctx.strokeStyle = 'rgba(123,255,176,0.55)';
           ctx.lineWidth = Math.max(1.2, c * 0.02);
           ctx.strokeRect(px + pad, py + pad, c - 2 * pad, c - 2 * pad);
-        }
-      }
-      ctx.restore();
-    },
-
-    // the veil pass, painted over the snakes: the very same glyphs again at half alpha.
-    // Where nothing covers them this is invisible under the full-contrast copies below;
-    // where a body crosses them the glyph reads through it like it is behind the snake,
-    // instead of being hidden or punched out hard
-    drawSweeperOverlay: function (ctx, world, left, top, right, bottom, zoom) {
-      var sw = world.sweeper;
-      if (!sw) return;
-      var c = sw.cell;
-      var lx0 = Math.max(0, Math.floor(left / c) - sw.ix0);
-      var lx1 = Math.min(sw.w - 1, Math.floor(right / c) - sw.ix0);
-      var ly0 = Math.max(0, Math.floor(top / c) - sw.iy0);
-      var ly1 = Math.min(sw.h - 1, Math.floor(bottom / c) - sw.iy0);
-      var fs = Math.round(c * 0.42);
-      var numFont = '700 ' + fs + 'px system-ui, sans-serif';
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.globalAlpha = 0.5;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = numFont;
-      for (var ly = ly0; ly <= ly1; ly++) {
-        var wy = (sw.iy0 + ly) * c;
-        for (var lx = lx0; lx <= lx1; lx++) {
-          var i = ly * sw.w + lx;
-          if (!sw.inside[i]) continue;
-          var st = sw.state[i];
-          if (st === 2) {
-            this.drawFlag(ctx, (sw.ix0 + lx) * c, wy, c);
-          } else if (st === 0) {
-            continue;
-          } else if (sw.mine[i]) {
-            this.drawMine(ctx, (sw.ix0 + lx) * c, wy, c);
-          } else if (sw.adj[i] > 0) {
-            ctx.fillStyle = NUM_TINT[sw.adj[i]];
-            ctx.fillText(String(sw.adj[i]), (sw.ix0 + lx + 0.5) * c, wy + c / 2 + 1);
-          }
         }
       }
       ctx.restore();
@@ -389,6 +345,19 @@
         ctx.strokeStyle = rgba(skin.b, 0.6);
         ctx.stroke();
         ctx.restore();
+
+        // the head is the exception to the lattice: the dash pattern butt-caps the
+        // path start, which left the front half of the head see-through; keep one
+        // solid disc so the face always sits on opaque body
+        var hxp = pts[0].x, hyp = pts[0].y;
+        ctx.beginPath();
+        ctx.arc(hxp, hyp, r + 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = s2.player ? shade(skin.a, 0.8) : shade(skin.a, -0.5);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(hxp, hyp, r, 0, Math.PI * 2);
+        ctx.fillStyle = skin.a;
+        ctx.fill();
 
         this.drawFace(ctx, s2, zoom);
 
