@@ -186,12 +186,18 @@
     this.think = 0;
     this.personality = rand(0, 1);   // 0 = skittish, 1 = aggressive
 
-    // body points, head first
+    // body points, head first. px/py hold the position at the start of the
+    // last physics step; the painter interpolates between them so a 144Hz
+    // screen sees smooth motion even though the simulation runs at 60Hz.
     this.pts = [];
     this.reach = 0;      // fractional growth: how far the tail tip reaches past its joint
     this.grown = segsFor(this.mass);   // eased body length, in segments
     var n = massToSegs(this.mass);
-    for (var i = 0; i < n; i++) this.pts.push({ x: x - Math.cos(this.angle) * i * CFG.snake.segSpacing, y: y - Math.sin(this.angle) * i * CFG.snake.segSpacing });
+    for (var i = 0; i < n; i++) {
+      var px = x - Math.cos(this.angle) * i * CFG.snake.segSpacing;
+      var py = y - Math.sin(this.angle) * i * CFG.snake.segSpacing;
+      this.pts.push({ x: px, y: py, px: px, py: py });
+    }
   }
 
   Snake.prototype.lengthUnits = function () {
@@ -430,12 +436,15 @@
     var n = pts.length;
     var ux = -Math.cos(s.angle), uy = -Math.sin(s.angle);   // tail-ward tangent
     // the head is already placed by the caller; one reciprocal per link replaces
-    // the three divisions the stretch step used to need
+    // the three divisions the stretch step used to need. px/py snapshot the
+    // position this point had before the step, for the painter's interpolation.
     for (var i = 1; i < n; i++) {
       var a = pts[i - 1], b = pts[i];
       var dx = a.x - b.x, dy = a.y - b.y;
       var d = Math.sqrt(dx * dx + dy * dy);
       var want = (i === n - 1) ? spacing + reach : spacing;
+      b.px = b.x;
+      b.py = b.y;
       if (d < 1e-6) {
         b.x = a.x + ux * want;
         b.y = a.y + uy * want;
@@ -519,7 +528,8 @@
         ty = -Math.sin(s.angle);
         tl = 1;
       }
-      pts.push({ x: tip.x + tx / tl * spacing, y: tip.y + ty / tl * spacing });
+      var tx2 = tip.x + tx / tl * spacing, ty2 = tip.y + ty / tl * spacing;
+      pts.push({ x: tx2, y: ty2, px: tx2, py: ty2 });
     }
     while (pts.length > target) {
       var tail = pts.pop();
@@ -774,8 +784,11 @@
 
       var boosting = s.boost && s.mass > CFG.snake.boostMinMass;
       var v = s.speed * (boosting ? CFG.snake.boostMul : 1);
-      s.pts[0].x += Math.cos(s.angle) * v * dt;
-      s.pts[0].y += Math.sin(s.angle) * v * dt;
+      var hp = s.pts[0];
+      hp.px = hp.x;
+      hp.py = hp.y;
+      hp.x += Math.cos(s.angle) * v * dt;
+      hp.y += Math.sin(s.angle) * v * dt;
 
       if (boosting) {
         var burn = CFG.snake.boostDrain * dt * (0.6 + s.r * 0.03);

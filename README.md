@@ -36,6 +36,7 @@ slither-local/
   tools/analyze_track.py checks the rendered track (tempo, tuning, headroom, clipping)
   tools/bench-page.mjs   headless-Chrome frame bench: world.step and Render.draw on the real page
   tools/bench-draw.mjs   painter bench: one fixed scene, timed as a batch
+  tools/bench-pacing.mjs frame pacing bench: what the rAF loop renders per frame at any refresh rate
   test/smoke.mjs    headless simulation + rule tests
   test/bench.mjs    seeded-PRNG simulation bench (match + stress scenarios)
 ```
@@ -104,6 +105,7 @@ node test/bench.mjs                    # medians for two scenarios, vs the saved
 node test/bench.mjs --baseline         # re-record the baseline after a deliberate change
 node tools/bench-page.mjs              # real page in headless Chrome: step + draw per frame
 node tools/bench-draw.mjs              # painter-only: one fixed scene, 300 draws as a batch
+node tools/bench-pacing.mjs --simhz=144  # frame pacing emulating a 144Hz display
 ```
 
 `test/bench.mjs` measures a normal 90s Ruthless match and a *stress* board — everyone
@@ -140,6 +142,27 @@ What bought that, in order of payoff:
   the win — SwiftShader raster dominates the ~10 ms software frame — but it retires
   a few hundred string allocations per frame on real hardware, and the live-page bench
   measures step −14% game / −25% stressed with draw unregressed.
+
+### Frame pacing
+
+Fast frames are useless if the motion they show stutters. The simulation ticks at a
+fixed 1/60 s, so on a 120/144/165Hz screen the old loop drew the same world state for
+over half the frames — `tools/bench-pacing.mjs` (which swaps in a synthetic rAF clock,
+since headless Chrome pins rAF to its own scheduler) measured **58% of rendered frames
+stalled at 144Hz and 64% at 165Hz**.
+
+The fix is standard render interpolation: every body point keeps the position it had
+at the start of the last step (`px`/`py`), and the painter draws each snake between
+that history and the current state at `lerp = acc / STEP` — the leftover fraction of
+the accumulator. The camera tracks the interpolated head, so screen motion matches
+what is drawn. Stalled frames are now **0%** at every emulated refresh rate. At a true
+60Hz display the accumulator drains fully each frame, so `lerp ≈ 0` and the painter
+draws the exact physics state; with frame-time jitter it slides smoothly between the
+last two steps instead of popping. The accumulator's overflow after the 4-step-per-
+frame cap is clamped to one step instead of discarded, so the world clock no longer
+silently drifts behind wall time after a load spike. The cost is two stores
+per point per step and one lerp per point per drawn frame — the step benchmark shows
+no regression, and draw picks up ~0.04 ms, invisible against raster.
 
 ## How it works
 

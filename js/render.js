@@ -121,10 +121,12 @@
       this.vignette = g;
     },
 
-    // view: { x, y, zoom, shakeX, shakeY, alpha (world fade for fades in/out) }
+    // view: { x, y, zoom, shakeX, shakeY, alpha (world fade for fades in/out),
+    //         lerp (0..1 fraction between the last two physics steps) }
     draw: function (world, view) {
       var ctx = this.ctx, w = this.w, h = this.h, dpr = this.dpr;
       var zoom = view.zoom;
+      var lp = view.lerp === undefined ? 1 : view.lerp;
       var camX = view.x + (view.shakeX || 0);
       var camY = view.y + (view.shakeY || 0);
 
@@ -145,7 +147,7 @@
       this.drawSweeper(ctx, world, left, top, right, bottom, zoom);
       this.drawBoundary(ctx, world, zoom);
       this.drawFood(ctx, world, left, top, right, bottom);
-      this.drawSnakes(ctx, world, left, top, right, bottom, zoom);
+      this.drawSnakes(ctx, world, left, top, right, bottom, zoom, lp);
       this.drawSweeperOverlay(ctx, world, left, top, right, bottom, zoom);
       this.drawEffects(ctx, world, zoom);
 
@@ -405,7 +407,7 @@
       return a;
     },
 
-    drawSnakes: function (ctx, world, left, top, right, bottom, zoom) {
+    drawSnakes: function (ctx, world, left, top, right, bottom, zoom, lp) {
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
 
@@ -430,10 +432,17 @@
         var blinking = s2.grace > 0 && (Math.floor(s2.grace * 8) % 2 === 0);
         ctx.globalAlpha = blinking ? 0.45 : 1;
 
-        // path from head to tail
+        // path from head to tail, drawn between the last two physics states so
+        // motion stays smooth on displays faster than the 60Hz simulation step
+        var h0 = pts[0];
+        var hx = h0.px + (h0.x - h0.px) * lp;
+        var hy = h0.py + (h0.y - h0.py) * lp;
         ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
+        ctx.moveTo(hx, hy);
+        for (var j = 1; j < pts.length; j++) {
+          var p = pts[j];
+          ctx.lineTo(p.px + (p.x - p.px) * lp, p.py + (p.y - p.py) * lp);
+        }
 
         if (s2.boost) {
           ctx.lineWidth = 2 * r + 18;
@@ -464,33 +473,31 @@
 
         // the head is the exception to the lattice, unless the knob turns it off
         if (LK.headDisc) {
-          var hxp = pts[0].x, hyp = pts[0].y;
           ctx.beginPath();
-          ctx.arc(hxp, hyp, r + 2.5, 0, Math.PI * 2);
+          ctx.arc(hx, hy, r + 2.5, 0, Math.PI * 2);
           ctx.fillStyle = s2.player ? paint.headPlayer : paint.headBot;
           ctx.fill();
           ctx.beginPath();
-          ctx.arc(hxp, hyp, r, 0, Math.PI * 2);
+          ctx.arc(hx, hy, r, 0, Math.PI * 2);
           ctx.fillStyle = s2.skin.a;
           ctx.fill();
         }
 
-        this.drawFace(ctx, s2, zoom);
+        this.drawFace(ctx, s2, zoom, hx, hy);
 
         // nameplate
         ctx.font = nameFont;
         ctx.textAlign = 'center';
         ctx.fillStyle = s2.player ? '#ffffff' : 'rgba(226,236,255,0.72)';
-        ctx.fillText(s2.name, pts[0].x, pts[0].y - r - fs * 0.9);
+        ctx.fillText(s2.name, hx, hy - r - fs * 0.9);
         ctx.globalAlpha = 1;
       }
       ctx.lineJoin = 'miter';
       ctx.lineCap = 'butt';
     },
 
-    drawFace: function (ctx, s, zoom) {
+    drawFace: function (ctx, s, zoom, hx, hy) {
       var r = s.r;
-      var hx = s.pts[0].x, hy = s.pts[0].y;
       var ca = Math.cos(s.angle), sa = Math.sin(s.angle);
       var px = -sa, py = ca;                 // perpendicular
       var eyeR = Math.max(1.4, r * 0.33);

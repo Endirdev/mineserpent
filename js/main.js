@@ -411,10 +411,12 @@
     if (dt > 0) fps = fps * 0.92 + (1 / dt) * 0.08;
     acc += dt;
 
+    var lerp = 1;
     if (world && state !== 'menu') {
       var steps = 0;
       while (acc >= STEP && steps < 4) { world.step(STEP); acc -= STEP; steps++; }
-      if (steps === 4) acc = 0;
+      if (acc > STEP) acc = STEP;   // cap the backlog at one step, so lerp stays in [0,1]
+      lerp = acc / STEP;            // the painter interpolates between the last two steps
       drainEvents();
       tickFeed(dt);
       updateHud();
@@ -443,13 +445,17 @@
     // the pointer target only exists during a run
     if (world && !(state === 'playing' && me && !me.dead)) world.hover = null;
 
-    // ---- camera
+    // ---- camera (follows the interpolated head, not the raw step position,
+    // so the screen motion matches what the painter draws)
     var focus = (state === 'playing' && me && !me.dead) ? me : (ghost && !ghost.dead ? ghost : me);
     if (focus) {
       cam.zoom += (targetZoom() - cam.zoom) * Math.min(1, dt * 3.2);
       var lead = 0.16;
-      var tx = focus.x() + Math.cos(focus.angle) * focus.r * lead * 4;
-      var ty = focus.y() + Math.sin(focus.angle) * focus.r * lead * 4;
+      var fp = focus.pts[0];
+      var fx = fp.px + (fp.x - fp.px) * lerp;
+      var fy = fp.py + (fp.y - fp.py) * lerp;
+      var tx = fx + Math.cos(focus.angle) * focus.r * lead * 4;
+      var ty = fy + Math.sin(focus.angle) * focus.r * lead * 4;
       cam.x += (tx - cam.x) * Math.min(1, dt * 6.5);
       cam.y += (ty - cam.y) * Math.min(1, dt * 6.5);
     }
@@ -482,7 +488,8 @@
     if (world) R.draw(world, {
       x: cam.x, y: cam.y, zoom: cam.zoom,
       shakeX: (Math.random() - 0.5) * shake,
-      shakeY: (Math.random() - 0.5) * shake
+      shakeY: (Math.random() - 0.5) * shake,
+      lerp: lerp
     });
 
     requestAnimationFrame(frame);
