@@ -22,6 +22,7 @@
       segSpacing: 6.5,     // distance between body points
       segBase: 12,         // body points at mass 0
       segPerMass: 0.9,     // body points per point of mass
+      growEase: 90,        // body points the tail may gain per second — length eases in
       maxSegs: 900,        // hard cap for performance
       speed: 118,          // px/s at mass 20
       boostMul: 2.05,
@@ -114,8 +115,14 @@
   };
 
   // ---------------------------------------------------------------- snake
+  // Continuous body plan: segsFor is the exact segment count a mass implies, and its
+  // fraction is how far the tail tip reaches past the last joint. Length therefore
+  // grows at the mass's own rate, instead of popping whole segments onto the tail.
+  function segsFor(mass) {
+    return Math.min(CFG.snake.maxSegs, CFG.snake.segBase + mass * CFG.snake.segPerMass);
+  }
   function massToSegs(mass) {
-    return Math.min(CFG.snake.maxSegs, Math.round(CFG.snake.segBase + mass * CFG.snake.segPerMass));
+    return Math.round(segsFor(mass));
   }
   function massToRadius(mass) {
     return 6 + Math.pow(mass, 0.34) * 1.9;
@@ -155,6 +162,8 @@
 
     // body points, head first
     this.pts = [];
+    this.reach = 0;      // fractional growth: how far the tail tip reaches past its joint
+    this.grown = segsFor(this.mass);   // eased body length, in segments
     var n = massToSegs(this.mass);
     for (var i = 0; i < n; i++) this.pts.push({ x: x - Math.cos(this.angle) * i * CFG.snake.segSpacing, y: y - Math.sin(this.angle) * i * CFG.snake.segSpacing });
   }
@@ -371,18 +380,30 @@
 
   // ---------------------------------------------------------------- bodies
   // Head advances, every other point keeps exact spacing behind the one in front.
-  function moveBody(s) {
+  // The last link is the exception: it carries the growth reach, so the tail tip
+  // slides out at the mass's own rate. A link with no direction of its own (two
+  // points stacked) inherits the body's tangent rather than being skipped — that
+  // skip is what left a new tail piece folded 180 degrees into the body.
+  function moveBody(s, reach) {
     var pts = s.pts, spacing = CFG.snake.segSpacing;
     pts[0].x = s.x();
     pts[0].y = s.y();
+    var ux = -Math.cos(s.angle), uy = -Math.sin(s.angle);   // tail-ward tangent
     for (var i = 1; i < pts.length; i++) {
       var a = pts[i - 1], b = pts[i];
       var dx = a.x - b.x, dy = a.y - b.y;
       var d = Math.sqrt(dx * dx + dy * dy);
-      if (d < 1e-6) continue;
-      var t = (d - spacing) / d;
-      b.x += dx * t;
-      b.y += dy * t;
+      var want = (i + 1 === pts.length) ? spacing + reach : spacing;
+      if (d < 1e-6) {
+        b.x = a.x + ux * want;
+        b.y = a.y + uy * want;
+      } else {
+        var t = (d - want) / d;
+        b.x += dx * t;
+        b.y += dy * t;
+        ux = -dx / d;
+        uy = -dy / d;
+      }
     }
   }
 
@@ -416,18 +437,46 @@
     }
   };
 
-  World.prototype.growBody = function (s, dropFood) {
-    var target = massToSegs(s.mass);
+  World.prototype.growBody = function (s, dropFood, dt) {
+    var spacing = CFG.snake.segSpacing;
+    var cont = segsFor(s.mass);
+    // the tail chases its mass at a fixed pace, so a fat pellet stretches the tip
+    // out over a few frames instead of snapping the whole pellet on at once
+    if (s.grown === undefined) s.grown = cont;
+    var cap = CFG.snake.growEase * (dt === undefined ? 1 : dt);
+    if (cont > s.grown) s.grown = Math.min(cont, s.grown + cap);
+    else s.grown = Math.max(cont, s.grown - cap);
+
+    var target = Math.min(CFG.snake.maxSegs + 1, Math.floor(s.grown) + 1);
     var pts = s.pts;
     while (pts.length < target) {
-      var last = pts[pts.length - 1];
-      pts.push({ x: last.x, y: last.y });
+      // a new joint extends the tail along its own tangent, a full spacing past the
+      // tip — stacking it on top of the tip is what made the piece pop in folded
+      var n = pts.length;
+      var tip = pts[n - 1];
+      var tx, ty;
+      if (n >= 2) {
+        var prev = pts[n - 2];
+        tx = tip.x - prev.x;
+        ty = tip.y - prev.y;
+      } else {
+        tx = -Math.cos(s.angle);
+        ty = -Math.sin(s.angle);
+      }
+      var tl = Math.sqrt(tx * tx + ty * ty);
+      if (tl < 1e-6) {
+        tx = -Math.cos(s.angle);
+        ty = -Math.sin(s.angle);
+        tl = 1;
+      }
+      pts.push({ x: tip.x + tx / tl * spacing, y: tip.y + ty / tl * spacing });
     }
     while (pts.length > target) {
       var tail = pts.pop();
       // burning length pays out as pellets behind you
       if (dropFood && this.food.length < CFG.food.target * 1.6) this.spawnFood(tail.x, tail.y, 1.4, 4.2);
     }
+    s.reach = (s.grown - Math.floor(s.grown)) * spacing;
     s.r = massToRadius(s.mass);
     s.speed = massToSpeed(s.mass);
   };
@@ -685,8 +734,8 @@
         if (s.mass < CFG.snake.boostMinMass) s.boost = false;
       }
 
-      moveBody(s);
-      this.growBody(s, boosting);
+      moveBody(s, s.reach || 0);
+      this.growBody(s, boosting, dt);
       this.eatFood(s, dt);
     }
 
