@@ -111,7 +111,12 @@
       ctx.lineWidth = 1 / zoom;
       ctx.strokeStyle = 'rgba(90,140,220,0.13)';
       ctx.beginPath();
+      // the minefield cells live on exact multiples of step, so the drawn lines must
+      // too: clamp the start to the arena, then snap it back onto the lattice — a raw
+      // -R start (2600 is not a multiple of 120) would shift the whole grid by 40 px
+      // near the west/north edge
       var x0 = Math.max(-R, Math.floor(left / step) * step);
+      x0 = Math.ceil(x0 / step) * step;
       var x1 = Math.min(R, right);
       for (var x = x0; x <= x1; x += step) {
         var chord = Math.sqrt(Math.max(0, R * R - x * x));
@@ -121,6 +126,7 @@
         ctx.moveTo(x, lo); ctx.lineTo(x, hi);
       }
       var y0 = Math.max(-R, Math.floor(top / step) * step);
+      y0 = Math.ceil(y0 / step) * step;
       var y1 = Math.min(R, bottom);
       for (var y = y0; y <= y1; y += step) {
         var chord2 = Math.sqrt(Math.max(0, R * R - y * y));
