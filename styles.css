@@ -146,6 +146,7 @@ input:focus, select:focus { outline: 2px solid rgba(123, 255, 176, 0.4); }
 #boost-meter { height: 100%; width: 0; background: rgba(120, 170, 255, 0.5); transition: width 0.15s; }
 #boostwrap.ready #boost-meter { background: linear-gradient(90deg, #ffd166, var(--acid)); }
 #boostbtn { display: none; padding: 14px 20px; }
+#digbtn, #flagbtn { display: none; padding: 12px 16px; }
 
 #hud-foot {
   position: absolute; bottom: 16px; right: 14px; display: flex; gap: 8px; align-items: center;
@@ -162,5 +163,6 @@ input:focus, select:focus { outline: 2px solid rgba(123, 255, 176, 0.4); }
   #board-panel { width: 148px; }
   #feed { display: none; }
   #boostbtn { display: block; }
+  #digbtn, #flagbtn { display: block; }
   #hud-foot span { display: none; }
 }

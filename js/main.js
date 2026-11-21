@@ -21,7 +21,8 @@
     toplen: el('top-len'), yours: el('yours'),
     deadTitle: el('dead-title'), deadBy: el('dead-by'),
     deadLength: el('dead-length'), deadKills: el('dead-kills'),
-    deadRank: el('dead-rank'), deadTime: el('dead-time')
+    deadRank: el('dead-rank'), deadTime: el('dead-time'),
+    swept: el('stat-swept'), mines: el('stat-mines'), deadSwept: el('dead-swept')
   };
 
   // ------------------------------------------------------------- sound
@@ -93,6 +94,7 @@
   var shake = 0, flash = 0;
   var lastKills = 0, started = 0;
   var pendingDeathKiller = null, pendingKillerId = null;
+  var pendingDeathCause = null;
   var feedTimers = [];
 
   var input = { mx: 0, my: 0, boost: false, keyBoost: false, keys: {} };
@@ -145,12 +147,32 @@
   window.addEventListener('mouseup', function () { input.boost = false; });
   window.addEventListener('blur', function () { input.boost = false; input.keys = {}; });
 
+  // ------------------------------------------------------------- sweeper
+  // The dig cursor is the cell under the snake's head — the only pointer in the game
+  // is the snake itself. Bots never dig; the minefield is the player's puzzle.
+  function trySweeper(flag) {
+    if (!(world && state === 'playing' && me && !me.dead)) return;
+    if (flag) {
+      var f = world.flagCell(me, me.x(), me.y());
+      if (f === 'flag') sfx.blip(360, 0.07, 0.06, 'square');
+      else if (f === 'unflag') sfx.blip(300, 0.05, 0.05, 'square');
+    } else {
+      var r = world.digCell(me, me.x(), me.y());
+      if (r === 'boom') sfx.blip(90, 0.5, 0.4, 'sawtooth');
+      else if (r === 'chord') sfx.blip(980, 0.09, 0.07, 'triangle');
+      else if (r) sfx.blip(720, 0.06, 0.06, 'sine');
+    }
+  }
+
   window.addEventListener('keydown', function (e) {
     var tag = e.target && e.target.tagName;
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;   // let the menu fields type
     if (e.code === 'Space' || e.code === 'ShiftLeft') { input.keyBoost = true; e.preventDefault(); }
     if (e.key === 'Escape' && state !== 'menu') toMenu();
     if (e.key === 'm' || e.key === 'M') toggleMute();
+    // digging on key-hold auto-repeat would fire every frame: only take fresh presses
+    if ((e.key === 's' || e.key === 'S' || e.key === '.') && !input.keys[e.key]) trySweeper(false);
+    if ((e.key === 'f' || e.key === 'F') && !input.keys[e.key]) trySweeper(true);
     input.keys[e.key] = true;
   });
   window.addEventListener('keyup', function (e) {
@@ -172,6 +194,12 @@
   el('boostbtn').addEventListener('touchend', function (e) { e.preventDefault(); input.boost = false; }, { passive: false });
   el('boostbtn').addEventListener('mousedown', function () { input.boost = true; });
   el('boostbtn').addEventListener('mouseup', function () { input.boost = false; });
+
+  // touch dig/flag buttons (desktop uses the S / F keys)
+  el('digbtn').addEventListener('touchstart', function (e) { e.preventDefault(); trySweeper(false); }, { passive: false });
+  el('flagbtn').addEventListener('touchstart', function (e) { e.preventDefault(); trySweeper(true); }, { passive: false });
+  el('digbtn').addEventListener('mousedown', function () { trySweeper(false); });
+  el('flagbtn').addEventListener('mousedown', function () { trySweeper(true); });
 
   function toMenu() {
     state = 'menu';
@@ -226,6 +254,15 @@
   function drainEvents() {
     for (var i = 0; i < world.events.length; i++) {
       var e = world.events[i];
+      if (e.type === 'sweeper') {
+        pushFeed('<b class="me">You</b> cleared the whole minefield <b class="me">+60</b>', true);
+        if (me && !me.dead) {
+          me.mass += 60;
+          me.score += 60;   // keep the length stat on the real body
+          sfx.kill();
+        }
+        continue;
+      }
       var involved = e.playerKill || e.playerVictim;
       var big = false;
       if (e.killerId) {
@@ -235,9 +272,14 @@
       }
       if (!involved && !big) continue;
       if (e.playerVictim) {
-        pushFeed('<b class="me">You</b> were eaten by <b>' + (e.killer ? e.killer : 'the wall') + '</b>', true);
-        pendingDeathKiller = e.killer;
-        pendingKillerId = e.killerId;
+        if (e.cause === 'mine') {
+          pushFeed('<b class="me">You</b> dug a mine', true);
+          pendingDeathCause = 'mine';
+        } else {
+          pushFeed('<b class="me">You</b> were eaten by <b>' + (e.killer ? e.killer : 'the wall') + '</b>', true);
+          pendingDeathKiller = e.killer;
+          pendingKillerId = e.killerId;
+        }
       } else if (e.playerKill) {
         pushFeed('<b class="me">You</b> ate <b>' + e.victim + '</b>', true);
       } else {
@@ -277,6 +319,9 @@
       var fuel = (me.mass - CFG.snake.boostMinMass) / (CFG.snake.boostMinMass * 2);
       dom.boost.style.width = Math.max(3, Math.min(100, fuel * 100)).toFixed(0) + '%';
       dom.boost.parentNode.classList.toggle('ready', canBoost);
+      var sw = world.sweeper;
+      dom.swept.textContent = sw.revealed + '/' + sw.safeTotal;
+      dom.mines.textContent = Math.max(0, sw.minesTotal - sw.flags);
     }
     R.drawMinimap(world, dom.minimap, me);
   }
@@ -287,18 +332,30 @@
     });
   }
 
-  function showDeath(killerName) {
+  function showDeath(killerName, cause) {
     state = 'dead';
     if (window.SlitherMusic) window.SlitherMusic.duck(true);
     dom.hud.classList.add('hidden');
     dom.dead.classList.remove('hidden');
-    dom.deadTitle.textContent = killerName ? 'Eaten by ' + killerName : 'You hit the wall';
-    dom.deadBy.textContent = killerName ? '' : 'The red ring is not a fence.';
-    el('spec').textContent = killerName || 'the snake that got you';
+    if (cause === 'mine') {
+      dom.deadTitle.textContent = 'You dug a mine';
+      dom.deadBy.textContent = 'The minefield hides under the grid — mines only go off when you dig on them.';
+      el('spec').textContent = 'the board, not a snake';
+    } else if (killerName) {
+      dom.deadTitle.textContent = 'Eaten by ' + killerName;
+      dom.deadBy.textContent = '';
+      el('spec').textContent = killerName;
+    } else {
+      dom.deadTitle.textContent = 'You hit the wall';
+      dom.deadBy.textContent = 'The red ring is not a fence.';
+      el('spec').textContent = 'the snake that got you';
+    }
     dom.deadLength.textContent = Math.round(me.score);
     dom.deadKills.textContent = me.kills;
     dom.deadRank.textContent = world.rank(me);
     dom.deadTime.textContent = Math.max(0, Math.round(world.time - started)) + 's';
+    var swd = world.sweeper;
+    dom.deadSwept.textContent = swd.revealed + '/' + swd.safeTotal + (swd.won ? ' cleared' : '');
   }
 
   // ------------------------------------------------------------- loop
@@ -367,9 +424,10 @@
       shake = 14;
       flash = 0.9;
       sfx.death();
-      showDeath(pendingDeathKiller);
+      showDeath(pendingDeathKiller, pendingDeathCause);
       pendingDeathKiller = null;
       pendingKillerId = null;
+      pendingDeathCause = null;
       sfx.boost(false);
     }
 
@@ -453,6 +511,8 @@
     cam: function () { return { x: cam.x, y: cam.y, zoom: cam.zoom }; },
     kill: function () { if (world && me && !me.dead) world.killSnake(me, world.leaderboard(1)[0]); },
     setMouse: function (x, y) { input.mx = x; input.my = y; },
-    setBoost: function (on) { input.boost = on; }
+    setBoost: function (on) { input.boost = on; },
+    dig: function () { if (world && me && !me.dead) return world.digCell(me, me.x(), me.y()); },
+    flag: function () { if (world && me && !me.dead) return world.flagCell(me, me.x(), me.y()); }
   };
 })();

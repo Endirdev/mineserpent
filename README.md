@@ -44,6 +44,7 @@ slither-local/
 | Mouse | steer toward the cursor |
 | Hold left click **or** Space | boost (burns your own length, drops it as food behind you) |
 | A / D, arrows | steer without a mouse |
+| S / F | dig / flag the grid cell your head is on |
 | M | mute |
 | Esc | back to the menu |
 | Touch | drag to steer, the **Boost** button appears on small screens |
@@ -56,6 +57,17 @@ Rules, same as the real thing:
 - The red ring kills you.
 - Boost is paid for with length, so a boosted snake shrinks.
 
+**The minefield** — this branch frankensteins a minesweeper onto the same grid: every
+world grid square hides either a safe cell or a mine (~9/12/15% by difficulty). The snake
+is the only cursor: `S` digs, `F` flags, always at the cell your **head** is on. Blanks
+cascade, numbers with matching flags chord (dig again on a satisfied number and the rest
+of the ring opens). Hidden mines are inert — a snake slithers over them without trouble;
+only a dig detonates, and a blast chain-detonates neighbouring mines and kills the digger,
+credited honestly on the death card ("You dug a mine", not "you hit the wall"). Clear all
+~1300 safe cells and the feed awards +60 length. The cleared area paints onto the minimap
+so you can plan routes across the board, and the death card reports how much you swept.
+The two games never otherwise interact: bots never dig, and mines never touch movement.
+
 ## Running the tests
 
 Simulation and game rules, headless, no browser:
@@ -66,7 +78,8 @@ node test/smoke.mjs
 
 It plays 90 simulated seconds of *Ruthless*, prints the match report, then runs
 deterministic rule checks: cut-offs, head-to-head, ring deaths, growth, boost cost and
-boost payout. It also asserts `world.step` stays well inside a 16.6 ms frame.
+boost payout — plus the minefield: density, adjacent counts, dig/flag/chord behaviour,
+full-clear and spawn safety. It also asserts `world.step` stays well inside a 16.6 ms frame.
 
 If you have Chrome and puppeteer-core, a page-level QA run drives the real UI
 (menu, real mouse and keyboard events, HUD, kill feed, death card, respawn, mute) and

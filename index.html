@@ -26,6 +26,8 @@
     </div>
     <div class="stat"><span class="k">Kills</span><span class="v" id="stat-kills">0</span></div>
     <div class="stat"><span class="k">Rank</span><span class="v" id="stat-rank">-</span></div>
+    <div class="stat"><span class="k">Swept</span><span class="v" id="stat-swept">0/0</span></div>
+    <div class="stat"><span class="k">Mines</span><span class="v" id="stat-mines">0</span></div>
   </div>
 
   <div id="board-panel">
@@ -42,6 +44,8 @@
       <div class="bar"><div id="boost-meter"></div></div>
     </div>
     <button id="boostbtn">Boost</button>
+    <button id="digbtn" class="ghost">Dig</button>
+    <button id="flagbtn" class="ghost">Flag</button>
   </div>
 
   <div id="hud-foot">
@@ -57,7 +61,8 @@
   <div class="card">
     <h1>Slither<span>Local</span></h1>
     <p class="tag">Grow by eating. Cut a snake off and it bursts — then you eat what is left.
-      Boosting burns your own length, and drops it as food behind you.</p>
+      Boosting burns your own length, and drops it as food behind you.
+      Beneath the grid hides a minefield: dig with <b>S</b> or flag with <b>F</b> at the cell your head is in — clear the board while you survive.</p>
 
     <label class="field">
       <span>Name</span>
@@ -84,6 +89,7 @@
       <li><b>Mouse</b> steer</li>
       <li><b>Click / Space</b> boost</li>
       <li><b>A &middot; D / &larr; &rarr;</b> steer (no mouse)</li>
+      <li><b>S</b> dig &middot; <b>F</b> flag — at the cell your head is on</li>
       <li><b>M</b> mute &middot; <b>Esc</b> menu</li>
     </ul>
   </div>
@@ -99,6 +105,7 @@
       <div><span class="k">Kills</span><b id="dead-kills">0</b></div>
       <div><span class="k">Rank</span><b id="dead-rank">-</b></div>
       <div><span class="k">Survived</span><b id="dead-time">0s</b></div>
+      <div><span class="k">Swept</span><b id="dead-swept">0/0</b></div>
     </div>
     <button id="again">Play again</button>
     <p class="small">Camera is following <span id="spec">the snake that got you</span> &mdash; watch how it plays.</p>

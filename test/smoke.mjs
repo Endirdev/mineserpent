@@ -109,6 +109,18 @@ const run = (w, steps, per) => {
   for (let i = 0; i < steps; i++) { if (per) per(i, w); w.step(DT); }
 };
 
+// helpers for the minefield tests: cell index <-> world centre of that cell
+const sweeperCell = (w, i) => {
+  const sw = w.sweeper;
+  const lx = i % sw.w, ly = (i - lx) / sw.w;
+  return [(sw.ix0 + lx + 0.5) * sw.cell, (sw.iy0 + ly + 0.5) * sw.cell];
+};
+const findCell = (w, pred) => {
+  const sw = w.sweeper;
+  for (let i = 0; i < sw.w * sw.h; i++) if (pred(w, i)) return i;
+  return -1;
+};
+
 function testCutOff() {
   const w = arena();
   // A trails a straight body along y = 0; B charges in from behind, boosted, at y = 14.
@@ -177,6 +189,118 @@ function testBoost() {
   assert(Math.abs(thin.mass - thinBefore) < 0.5, 'too thin to boost — a starving snake burns nothing');
 }
 
+function testMinefield() {
+  const w = arena();
+  const sw = w.sweeper;
+  const total = sw.minesTotal + sw.safeTotal;
+  assert(total > 1200, 'the minefield covers the grid over the arena');
+  assert(Math.abs(sw.minesTotal / total - w.diffCfg.mines) < 0.03, 'mine density lands on the difficulty setting');
+  let wrong = 0;
+  for (let i = 0; i < sw.w * sw.h; i++) {
+    if (!sw.inside[i]) continue;
+    let cnt = 0;
+    const lx = i % sw.w, ly = (i - lx) / sw.w;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = lx + dx, ny = ly + dy;
+      if (nx < 0 || ny < 0 || nx >= sw.w || ny >= sw.h) continue;
+      if (sw.mine[ny * sw.w + nx]) cnt++;
+    }
+    if (sw.adj[i] !== cnt) wrong++;
+  }
+  assert(wrong === 0, 'every cell number matches the adjacent-mine count');
+}
+
+function testDigSafe() {
+  const w = arena();
+  const s = make(w, 0, 0, 0);
+  const i = findCell(w, (ww, ii) => ww.sweeper.inside[ii] && !ww.sweeper.mine[ii] && ww.sweeper.adj[ii] > 0);
+  const [x, y] = sweeperCell(w, i);
+  assert(w.digCell(s, x, y) === 'dig', 'digging a safe cell reveals it');
+  assert(w.sweeper.revealed === 1, 'a numbered cell reveals only itself — no cascade');
+  assert(!s.dead, 'digging a safe cell is safe');
+}
+
+function testBoom() {
+  const w = arena();
+  const s = make(w, 0, 0, 0);
+  const i = findCell(w, (ww, ii) => ww.sweeper.mine[ii]);
+  const [x, y] = sweeperCell(w, i);
+  w.effects.length = 0;
+  assert(w.digCell(s, x, y) === 'boom', 'digging a mine detonates it');
+  assert(s.dead, 'the digger dies from its own dig');
+  assert(w.events.some((e) => e.cause === 'mine'), 'the death is credited to the mine, not the wall');
+  assert(w.effects.length >= 2, 'the blast and the death both make visible effects');
+  assert(w.sweeper.state[i] === 1, 'the mine that went off shows itself');
+}
+
+function testFlagGuard() {
+  const w = arena();
+  const s = make(w, 0, 0, 0);
+  const i = findCell(w, (ww, ii) => ww.sweeper.inside[ii] && !ww.sweeper.mine[ii]);
+  const [x, y] = sweeperCell(w, i);
+  assert(w.flagCell(s, x, y) === 'flag', 'flagging marks the cell');
+  assert(w.digCell(s, x, y) === null, 'a flagged cell cannot be dug');
+  assert(w.sweeper.state[i] === 2, 'the cell stays hidden-flagged, nothing secretly revealed');
+  assert(w.flagCell(s, x, y) === 'unflag', 'flagging again lifts the flag');
+}
+
+function testChord() {
+  const w = arena();
+  const s = make(w, 0, 0, 0);
+  const i = findCell(w, (ww, ii) => {
+    const s2 = ww.sweeper;
+    if (!s2.inside[ii] || s2.mine[ii] || s2.adj[ii] !== 1) return false;
+    const lx = ii % s2.w, ly = (ii - lx) / s2.w;
+    if (lx < 1 || ly < 1 || lx >= s2.w - 1 || ly >= s2.h - 1) return false;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!s2.inside[(ly + dy) * s2.w + lx + dx]) return false;
+    }
+    return true;
+  });
+  assert(i >= 0, 'a clean single-mine cell exists to chord');
+  const [x, y] = sweeperCell(w, i);
+  assert(w.digCell(s, x, y) === 'dig', 'first dig opens the 1');
+  const sw = w.sweeper;
+  const lx = i % sw.w, ly = (i - lx) / sw.w;
+  let mineN = -1;
+  for (let dy = -1; dy <= 1 && mineN < 0; dy++) for (let dx = -1; dx <= 1 && mineN < 0; dx++) {
+    if (!dx && !dy) continue;
+    const j = (ly + dy) * sw.w + lx + dx;
+    if (sw.mine[j]) mineN = j;
+  }
+  const [fx, fy] = sweeperCell(w, mineN);
+  assert(w.flagCell(s, fx, fy) === 'flag', 'the mine next to it gets flagged');
+  const before = sw.revealed;
+  assert(w.digCell(s, x, y) === 'chord', 'digging on a satisfied number chords');
+  assert(sw.revealed === before + 7, 'the chord opens the remaining seven safe cells');
+  assert(!s.dead, 'chording with the right flags is safe');
+}
+
+function testClearBoard() {
+  const w = arena();
+  const s = make(w, 0, 0, 0);
+  const sw = w.sweeper;
+  let digs = 0;
+  while (!sw.won) {
+    const i = findCell(w, (ww, ii) => ww.sweeper.inside[ii] && !ww.sweeper.mine[ii] && ww.sweeper.state[ii] === 0);
+    if (i < 0) break;
+    const [x, y] = sweeperCell(w, i);
+    w.digCell(s, x, y);
+    digs++;
+  }
+  assert(sw.won, 'the board can be fully cleared with safe digging');
+  assert(sw.revealed === sw.safeTotal, 'every safe cell ends up revealed');
+  assert(w.events.some((e) => e.type === 'sweeper'), 'the clear broadcasts an event for the UI');
+}
+
+function testSpawnSafe() {
+  const w = arena();
+  const s = w.spawnSnake({ name: 'P', player: true, bot: false });
+  const i = w.sweeper.at(s.x(), s.y());
+  assert(i >= 0 && !w.sweeper.mine[i], 'a snake never spawns on a mine cell');
+}
+
 console.log('--- rule tests ----------------------------------------------');
 testCutOff();
 testHeadOn();
@@ -184,6 +308,13 @@ testMutualKillCredit();
 testWall();
 testGrowth();
 testBoost();
+testMinefield();
+testDigSafe();
+testBoom();
+testFlagGuard();
+testChord();
+testClearBoard();
+testSpawnSafe();
 
 assert(alive.length >= world.diffCfg.bots - 2, 'arena stays stocked with snakes');
 assert(deaths > 0, 'snakes die (collisions and the wall are firing)');

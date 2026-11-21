@@ -8,6 +8,7 @@
   // ---------------------------------------------------------------- tuning
   var CFG = {
     world: { radius: 2600 },
+    cell: 120,           // grid step: drawGrid lines and the minesweeper board share it
 
     food: {
       target: 1500,        // pellets kept on the field at all times
@@ -40,9 +41,9 @@
   };
 
   var DIFFICULTY = {
-    chill:   { label: 'Chill',   bots: 26, lookMul: 0.75, turnMul: 0.90, boostAggro: 0.35, massMul: 0.85 },
-    classic: { label: 'Classic', bots: 35, lookMul: 1.00, turnMul: 1.00, boostAggro: 0.60, massMul: 1.00 },
-    ruthless:{ label: 'Ruthless',bots: 44, lookMul: 1.30, turnMul: 1.18, boostAggro: 0.85, massMul: 1.20 }
+    chill:   { label: 'Chill',   bots: 26, lookMul: 0.75, turnMul: 0.90, boostAggro: 0.35, massMul: 0.85, mines: 0.09 },
+    classic: { label: 'Classic', bots: 35, lookMul: 1.00, turnMul: 1.00, boostAggro: 0.60, massMul: 1.00, mines: 0.12 },
+    ruthless:{ label: 'Ruthless',bots: 44, lookMul: 1.30, turnMul: 1.18, boostAggro: 0.85, massMul: 1.20, mines: 0.15 }
   };
 
   var SKINS = [
@@ -167,6 +168,8 @@
     this.diff = DIFFICULTY[opts.difficulty] ? opts.difficulty : 'classic';
     this.diffCfg = DIFFICULTY[this.diff];
     this.radius = CFG.world.radius;
+    this.cell = CFG.cell;
+    this.sweeper = this.buildSweeper();   // the grid doubles as a minefield
 
     this.snakes = [];
     this.food = [];
@@ -223,6 +226,7 @@
     });
     this.snakes.push(s);
     if (opts.player) this.player = s;
+    if (opts.player) this.sweeperMakeSafe(best.x, best.y);   // never spawn on a mine
     return s;
   };
 
@@ -427,8 +431,175 @@
     s.speed = massToSpeed(s.mass);
   };
 
+  // ---------------------------------------------------------------- sweeper
+  // The world grid doubles as a minesweeper board: every grid cell is safe or mined,
+  // and hidden mines are inert — a snake slithers over them without trouble. Only
+  // digging detonates. The player digs at the cell under its own head (see main.js);
+  // bots never dig. Clearing the board is a run goal that coexists with surviving.
+  World.prototype.buildSweeper = function () {
+    var c = CFG.cell, R = this.radius;
+    var k = Math.floor(R / c) + 1;        // pad one ring so edge cells get tested
+    var side = 2 * k + 1;
+    var n = side * side;
+    var sw = { cell: c, w: side, h: side, ix0: -k, iy0: -k };
+    sw.inside = new Uint8Array(n);        // cell centre inside the arena: playable
+    sw.mine = new Uint8Array(n);
+    sw.adj = new Uint8Array(n);           // adjacent-mine count (the number you dig up)
+    sw.state = new Uint8Array(n);         // 0 hidden, 1 revealed, 2 flagged
+    var p = this.diffCfg.mines;
+    for (var ly = 0; ly < side; ly++) {
+      for (var lx = 0; lx < side; lx++) {
+        var i = ly * side + lx;
+        var mx = (-k + lx + 0.5) * c, my = (-k + ly + 0.5) * c;
+        if (mx * mx + my * my > (R - 1) * (R - 1)) continue;
+        sw.inside[i] = 1;
+        if (Math.random() < p) sw.mine[i] = 1;
+      }
+    }
+    // world position -> cell index (-1 if outside the board or outside the arena)
+    sw.at = function (x, y) {
+      var lx = Math.floor(x / c) + k, ly = Math.floor(y / c) + k;
+      if (lx < 0 || ly < 0 || lx >= side || ly >= side) return -1;
+      var j = ly * side + lx;
+      return sw.inside[j] ? j : -1;
+    };
+    sw.cx = function (i) { return ((i % side) - k + 0.5) * c; };
+    sw.cy = function (i) { return ((i - i % side) / side - k + 0.5) * c; };
+    sw.neigh = function (i, fn) {
+      var lx = i % side, ly = (i - lx) / side;
+      for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          var nx = lx + dx, ny = ly + dy;
+          if (nx < 0 || ny < 0 || nx >= side || ny >= side) continue;
+          var j = ny * side + nx;
+          if (sw.inside[j]) fn(j);
+        }
+      }
+    };
+    sw.recount = function (i) {
+      var cnt = 0;
+      sw.neigh(i, function (j) { if (sw.mine[j]) cnt++; });
+      sw.adj[i] = cnt;
+    };
+    sw.safeTotal = 0;
+    sw.minesTotal = 0;
+    sw.revealed = 0;
+    sw.flags = 0;
+    sw.won = false;
+    for (var i2 = 0; i2 < n; i2++) {
+      if (!sw.inside[i2]) continue;
+      if (sw.mine[i2]) sw.minesTotal++; else sw.safeTotal++;
+      sw.recount(i2);
+    }
+    return sw;
+  };
+
+  World.prototype.fixAdj = function (i) {
+    var sw = this.sweeper;
+    sw.recount(i);
+    sw.neigh(i, function (j) { sw.recount(j); });
+  };
+
+  // A snake must never appear on a mined cell: the mine moves somewhere harmless.
+  World.prototype.sweeperMakeSafe = function (x, y) {
+    var sw = this.sweeper;
+    var i = sw.at(x, y);
+    if (i < 0 || !sw.mine[i]) return;
+    for (var tries = 0; tries < 800; tries++) {
+      var j = Math.floor(Math.random() * sw.w * sw.h);
+      if (j !== i && sw.inside[j] && !sw.mine[j]) {
+        sw.mine[i] = 0;
+        sw.mine[j] = 1;
+        this.fixAdj(i);
+        this.fixAdj(j);
+        return;
+      }
+    }
+    sw.mine[i] = 0;                    // nowhere to move it — disarm the spawn cell
+  };
+
+  World.prototype.revealSafeCell = function (i) {
+    var sw = this.sweeper;
+    if (sw.state[i] !== 0 || sw.mine[i]) return false;   // never auto-reveal a mine or a flag
+    sw.state[i] = 1;
+    sw.revealed++;
+    if (!sw.won && sw.revealed >= sw.safeTotal) {
+      sw.won = true;
+      this.events.push({ type: 'sweeper', won: true });
+    }
+    return true;
+  };
+
+  // Dig at world (x, y): 'dig' | 'chord' | 'boom' | null. Numbers with as many flags
+  // around as they show get chored: every other neighbour opens at once.
+  World.prototype.digCell = function (s, x, y) {
+    var sw = this.sweeper;
+    var i = sw.at(x, y);
+    if (i < 0 || sw.state[i] === 2) return null;
+    if (sw.mine[i]) return sw.state[i] === 1 ? null : this.explodeAt(s, i);
+    if (sw.state[i] === 1) return this.chordAt(s, i);
+    var self = this;
+    this.revealSafeCell(i);
+    var stack = sw.adj[i] === 0 ? [i] : [];
+    while (stack.length) {
+      var c2 = stack.pop();
+      sw.neigh(c2, function (j) {
+        if (self.revealSafeCell(j) && sw.adj[j] === 0) stack.push(j);
+      });
+    }
+    return 'dig';
+  };
+
+  World.prototype.chordAt = function (s, i) {
+    var sw = this.sweeper;
+    var n = sw.adj[i];
+    if (!n || sw.state[i] !== 1) return null;
+    var flags = 0;
+    sw.neigh(i, function (j) { if (sw.state[j] === 2) flags++; });
+    if (flags !== n) return null;
+    var boom = -1, got = 0;
+    var self = this;
+    sw.neigh(i, function (j) {
+      if (sw.state[j] === 2) return;
+      if (sw.mine[j]) { if (boom < 0 && sw.state[j] !== 1) boom = j; return; }
+      if (self.revealSafeCell(j)) got++;
+    });
+    if (boom >= 0) return this.explodeAt(s, boom);
+    return got > 0 ? 'chord' : null;
+  };
+
+  // Chain blast: the mine you hit goes off, neighbouring mines follow, and safe cells
+  // around the blasts clear themselves. The digger dies — credited to the mine, not the wall.
+  World.prototype.explodeAt = function (s, i) {
+    var sw = this.sweeper;
+    var queue = [i];
+    var self = this;
+    while (queue.length) {
+      var c2 = queue.pop();
+      if (!(sw.mine[c2] && sw.state[c2] !== 1)) continue;
+      sw.state[c2] = 1;
+      this.effects.push({ type: 'shock', x: sw.cx(c2), y: sw.cy(c2), r: sw.cell * 0.3, max: sw.cell * 3.4, t: 0 });
+      sw.neigh(c2, function (j) {
+        if (sw.mine[j]) queue.push(j);
+        else self.revealSafeCell(j);
+      });
+    }
+    this.killSnake(s, null, 'mine');
+    return 'boom';
+  };
+
+  World.prototype.flagCell = function (s, x, y) {
+    var sw = this.sweeper;
+    var i = sw.at(x, y);
+    if (i < 0) return null;
+    if (sw.state[i] === 0) { sw.state[i] = 2; sw.flags++; return 'flag'; }
+    if (sw.state[i] === 2) { sw.state[i] = 0; sw.flags--; return 'unflag'; }
+    return null;
+  };
+
   // ---------------------------------------------------------------- death
-  World.prototype.killSnake = function (s, killer) {
+  World.prototype.killSnake = function (s, killer, cause) {
     if (s.dead) return;
     s.dead = true;
 
@@ -450,7 +621,9 @@
       killer.kills += 1;
       this.events.push({ type: 'kill', killer: killer.name, victim: s.name, killerId: killer.id, victimId: s.id, playerKill: killer.player, playerVictim: s.player });
     } else {
-      this.events.push({ type: 'kill', killer: null, victim: s.name, victimId: s.id, playerVictim: s.player });
+      var ev = { type: 'kill', killer: null, victim: s.name, victimId: s.id, playerVictim: s.player };
+      if (cause) ev.cause = cause;   // 'mine' for a dig blast; a plain wall death has none
+      this.events.push(ev);
     }
   };
 

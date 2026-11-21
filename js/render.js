@@ -36,6 +36,9 @@
 
   var FOOD_TINT = ['#8ef7ff', '#ffe27a', '#b6ff7a', '#ff9bd0'];
 
+  // minesweeper number colours, indexed by the adjacent-mine count
+  var NUM_TINT = ['', '#3fa7ff', '#7bffb0', '#ff5d6d', '#8b7bff', '#ffd166', '#c47bff', '#9fe8ff', '#ff8a4c'];
+
   // ------------------------------------------------------------- renderer
   var Render = {
     canvas: null,
@@ -90,6 +93,7 @@
       left -= margin; top -= margin; right += margin; bottom += margin;
 
       this.drawGrid(ctx, world, left, top, right, bottom, zoom);
+      this.drawSweeper(ctx, world, left, top, right, bottom, zoom);
       this.drawBoundary(ctx, world, zoom);
       this.drawFood(ctx, world, left, top, right, bottom);
       this.drawSnakes(ctx, world, left, top, right, bottom, zoom);
@@ -102,7 +106,7 @@
     },
 
     drawGrid: function (ctx, world, left, top, right, bottom, zoom) {
-      var step = 120;
+      var step = world.cell || 120;
       var R = world.radius;
       ctx.lineWidth = 1 / zoom;
       ctx.strokeStyle = 'rgba(90,140,220,0.13)';
@@ -124,6 +128,104 @@
         var lo2 = Math.max(-chord2, left), hi2 = Math.min(chord2, right);
         if (lo2 >= hi2) continue;
         ctx.moveTo(lo2, y); ctx.lineTo(hi2, y);
+      }
+      ctx.stroke();
+    },
+
+    // the minesweeper layer: cleared cells, their numbers, exposed mines, flags, and
+    // the green cursor marking the cell the player's head is in (where a dig lands)
+    drawSweeper: function (ctx, world, left, top, right, bottom, zoom) {
+      var sw = world.sweeper;
+      if (!sw) return;
+      var c = sw.cell;
+      var lx0 = Math.max(0, Math.floor(left / c) - sw.ix0);
+      var lx1 = Math.min(sw.w - 1, Math.floor(right / c) - sw.ix0);
+      var ly0 = Math.max(0, Math.floor(top / c) - sw.iy0);
+      var ly1 = Math.min(sw.h - 1, Math.floor(bottom / c) - sw.iy0);
+      var fs = Math.round(c * 0.42);
+      var numFont = '700 ' + fs + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (var ly = ly0; ly <= ly1; ly++) {
+        var wy = (sw.iy0 + ly) * c;
+        for (var lx = lx0; lx <= lx1; lx++) {
+          var i = ly * sw.w + lx;
+          if (!sw.inside[i]) continue;
+          var wx = (sw.ix0 + lx) * c;
+          var st = sw.state[i];
+          if (st === 2) {
+            ctx.fillStyle = 'rgba(255,74,90,0.06)';
+            ctx.fillRect(wx, wy, c, c);
+            this.drawFlag(ctx, wx, wy, c);
+          } else if (st === 0) {
+            continue;   // hidden cells are just the grid
+          } else if (sw.mine[i]) {
+            ctx.fillStyle = 'rgba(255,64,88,0.16)';
+            ctx.fillRect(wx, wy, c, c);
+            this.drawMine(ctx, wx, wy, c);
+          } else {
+            ctx.fillStyle = 'rgba(104,158,240,0.09)';
+            ctx.fillRect(wx, wy, c, c);
+            var n = sw.adj[i];
+            if (n > 0) {
+              ctx.font = numFont;
+              ctx.fillStyle = NUM_TINT[n];
+              ctx.fillText(String(n), wx + c / 2, wy + c / 2 + 1);
+            }
+          }
+        }
+      }
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+
+      if (world.player && !world.player.dead) {
+        var hx = Math.floor(world.player.x() / c) - sw.ix0;
+        var hy = Math.floor(world.player.y() / c) - sw.iy0;
+        if (hx >= 0 && hy >= 0 && hx < sw.w && hy < sw.h && sw.inside[hy * sw.w + hx]) {
+          var px = (sw.ix0 + hx) * c, py = (sw.iy0 + hy) * c;
+          var pad = c * 0.06;
+          ctx.strokeStyle = 'rgba(123,255,176,0.55)';
+          ctx.lineWidth = Math.max(1.2, c * 0.02);
+          ctx.strokeRect(px + pad, py + pad, c - 2 * pad, c - 2 * pad);
+        }
+      }
+    },
+
+    drawFlag: function (ctx, x, y, c) {
+      var fx = x + c * 0.32, base = y + c * 0.74, top = y + c * 0.24;
+      ctx.strokeStyle = 'rgba(234,252,255,0.85)';
+      ctx.lineWidth = Math.max(1.2, c * 0.03);
+      ctx.beginPath();
+      ctx.moveTo(fx, base);
+      ctx.lineTo(fx, top);
+      ctx.stroke();
+      ctx.fillStyle = '#ff4a5a';
+      ctx.beginPath();
+      ctx.moveTo(fx, top);
+      ctx.lineTo(fx + c * 0.3, top + c * 0.09);
+      ctx.lineTo(fx, top + c * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(fx - c * 0.13, base);
+      ctx.lineTo(fx + c * 0.13, base);
+      ctx.stroke();
+    },
+
+    drawMine: function (ctx, x, y, c) {
+      var mx = x + c / 2, my = y + c / 2, rr = c * 0.16;
+      ctx.strokeStyle = '#ff3f5f';
+      ctx.fillStyle = 'rgba(255,63,95,0.4)';
+      ctx.lineWidth = Math.max(1.4, c * 0.025);
+      ctx.beginPath();
+      ctx.arc(mx, my, rr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      for (var k2 = 0; k2 < 8; k2++) {
+        var a = k2 * Math.PI / 4;
+        ctx.moveTo(mx + Math.cos(a) * rr * 1.2, my + Math.sin(a) * rr * 1.2);
+        ctx.lineTo(mx + Math.cos(a) * rr * 1.85, my + Math.sin(a) * rr * 1.85);
       }
       ctx.stroke();
     },
@@ -292,6 +394,19 @@
       ctx.lineWidth = 2;
       ctx.strokeStyle = 'rgba(255,43,94,0.8)';
       ctx.stroke();
+
+      // cleared minefield area, so routes across the board are visible
+      var sw = world.sweeper;
+      if (sw) {
+        ctx.fillStyle = 'rgba(123,255,176,0.14)';
+        var s1 = Math.max(1.4, sw.cell * scale);
+        for (var i2 = 0; i2 < sw.w * sw.h; i2++) {
+          if (!sw.inside[i2] || sw.state[i2] !== 1 || sw.mine[i2]) continue;
+          var lxx = i2 % sw.w, lyy = (i2 - lxx) / sw.w;
+          ctx.fillRect(cx + (sw.ix0 + lxx + 0.5) * sw.cell * scale - s1 / 2,
+                       cy + (sw.iy0 + lyy + 0.5) * sw.cell * scale - s1 / 2, s1, s1);
+        }
+      }
 
       for (var i = 0; i < world.snakes.length; i++) {
         var s = world.snakes[i];
