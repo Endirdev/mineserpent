@@ -39,8 +39,18 @@
   // assemble these strings (and the sweeper washes below) per pellet per frame
   var FOOD_GLOW = FOOD_TINT.map(function (c) { return rgba(c, 0.10); });
 
-  // minesweeper number colours, indexed by the adjacent-mine count
+  // minesweeper number colours and their text, indexed by the adjacent-mine count:
+  // the strings are interned once so the painter never assembles them per cell
   var NUM_TINT = ['', '#3fa7ff', '#7bffb0', '#ff5d6d', '#8b7bff', '#ffd166', '#c47bff', '#9fe8ff', '#ff8a4c'];
+  var NUM_STR = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
+
+  // the marks pass walks the visible cells once a frame and drops what it finds
+  // into these lists, which every sub-shape then paints: walking the whole window
+  // once per sub-shape costed more than the painting itself. The lists are reused,
+  // so a frame that finds nothing marks does not allocate.
+  var MARK_FLAG = [], MARK_MINE = [];
+  var MARK_WASH_F = [], MARK_WASH_M = [], MARK_WASH_R = [];
+  var MARK_NUM = [[], [], [], [], [], [], [], [], [], []];
 
   // paint strings shared by every cell/frame; built from LOOK at boot. LOOK is a
   // frozen settings table, so deriving these once is safe.
@@ -190,19 +200,172 @@
       ctx.stroke();
     },
 
+    // one batched pass over the visible marks: cleared cells show their number,
+    // exposed mines and flags keep their glyph. Painting a mark cell by cell means
+    // every flag and mine costs six separate stroke/fill calls, and each of those
+    // re-resolves the paint and re-applies the arena clip — so the marks a dig or a
+    // flag leaves behind made every later frame cost more to paint. The visible
+    // marks are now gathered in one walk of the cells and the fills share a path,
+    // while the thin strokes keep their own call: the software raster antialiases a
+    // stroke batched with other cells' strokes on a wider edge than a lone one.
+    drawMarks: function (ctx, sw, lx0, lx1, ly0, ly1, c, wash) {
+      var lx, ly, i, wx, wy, fx, base, top2, mx, my, rr, a, k, n, run = 64;
+      // one walk of the visible cells feeds every pass below: the window is wide
+      // and a mark is rare, so re-walking it per sub-shape costed more than the
+      // painting did
+      MARK_FLAG.length = 0;
+      MARK_MINE.length = 0;
+      MARK_WASH_F.length = 0;
+      MARK_WASH_M.length = 0;
+      MARK_WASH_R.length = 0;
+      for (k = 1; k <= 8; k++) MARK_NUM[k].length = 0;
+      for (ly = ly0; ly <= ly1; ly++) {
+        for (lx = lx0; lx <= lx1; lx++) {
+          i = ly * sw.w + lx;
+          var st = sw.state[i];
+          if (st === 0) continue;
+          if (st === 2) { MARK_WASH_F.push(i); MARK_FLAG.push(i); }
+          else if (sw.mine[i]) { MARK_WASH_M.push(i); MARK_MINE.push(i); }
+          else {
+            MARK_WASH_R.push(i);
+            if (sw.adj[i] > 0) MARK_NUM[sw.adj[i]].push(i);
+          }
+        }
+      }
+      // a revealed mark always sits on a playable cell, so the state test alone is
+      // enough: hidden cells are the only ones whose state stays 0
+      // the washes are painted from the same walk, grouped by tint: the squares are
+      // disjoint so the order between them cannot matter, and this leaves the
+      // canvas resolving three paints a frame instead of one per cell
+      if (wash) {
+        for (n = 0; n < 3; n++) {
+          var list = n === 0 ? MARK_WASH_F : (n === 1 ? MARK_WASH_M : MARK_WASH_R);
+          if (!list.length) continue;
+          ctx.fillStyle = n === 0 ? this.paints.washFlag : (n === 1 ? this.paints.washMine : this.paints.washRevealed);
+          for (k = 0; k < list.length; k++) {
+            i = list[k];
+            lx = i % sw.w;
+            ctx.fillRect((sw.ix0 + lx) * c, (sw.iy0 + (i - lx) / sw.w) * c, c, c);
+          }
+        }
+      }
+      // flag poles and bases keep their own stroke per mark: a thin stroke batched
+      // with other cells' strokes gets a wider antialiased edge from the software
+      // raster, and the two also blend over each other where they meet. The sheet
+      // is a fill, so every sheet shares one path.
+      ctx.strokeStyle = 'rgba(234,252,255,0.85)';
+      ctx.lineWidth = Math.max(1.2, c * 0.03);
+      for (k = 0; k < MARK_FLAG.length; k++) {
+        i = MARK_FLAG[k];
+        lx = i % sw.w;
+        wy = (sw.iy0 + (i - lx) / sw.w) * c;
+        fx = (sw.ix0 + lx) * c + c * 0.32; top2 = wy + c * 0.24;
+        ctx.beginPath();
+        ctx.moveTo(fx, wy + c * 0.74); ctx.lineTo(fx, top2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ff4a5a';
+      ctx.beginPath();
+      n = 0;
+      for (k = 0; k < MARK_FLAG.length; k++) {
+        i = MARK_FLAG[k];
+        lx = i % sw.w;
+        wy = (sw.iy0 + (i - lx) / sw.w) * c;
+        fx = (sw.ix0 + lx) * c + c * 0.32; top2 = wy + c * 0.24;
+        ctx.moveTo(fx, top2);
+        ctx.lineTo(fx + c * 0.3, top2 + c * 0.09);
+        ctx.lineTo(fx, top2 + c * 0.2);
+        ctx.closePath();
+        if (++n === run) { ctx.fill(); ctx.beginPath(); n = 0; }
+      }
+      ctx.fill();
+      for (k = 0; k < MARK_FLAG.length; k++) {
+        i = MARK_FLAG[k];
+        lx = i % sw.w;
+        wy = (sw.iy0 + (i - lx) / sw.w) * c;
+        fx = (sw.ix0 + lx) * c + c * 0.32; base = wy + c * 0.74;
+        ctx.beginPath();
+        ctx.moveTo(fx - c * 0.13, base); ctx.lineTo(fx + c * 0.13, base);
+        ctx.stroke();
+      }
+      // exposed mines: the disc is a fill, the rim and the spokes are strokes, and
+      // a disc needs its own moveTo or the previous subpath joins on with a line
+      ctx.fillStyle = 'rgba(255,63,95,0.4)';
+      ctx.beginPath();
+      n = 0;
+      for (k = 0; k < MARK_MINE.length; k++) {
+        i = MARK_MINE[k];
+        lx = i % sw.w;
+        mx = (sw.ix0 + lx + 0.5) * c;
+        my = (sw.iy0 + (i - lx) / sw.w) * c + c / 2;
+        rr = c * 0.16;
+        ctx.moveTo(mx + rr, my);
+        ctx.arc(mx, my, rr, 0, Math.PI * 2);
+        if (++n === run) { ctx.fill(); ctx.beginPath(); n = 0; }
+      }
+      ctx.fill();
+      ctx.strokeStyle = '#ff3f5f';
+      ctx.lineWidth = Math.max(1.4, c * 0.025);
+      ctx.beginPath();
+      n = 0;
+      for (k = 0; k < MARK_MINE.length; k++) {
+        i = MARK_MINE[k];
+        lx = i % sw.w;
+        mx = (sw.ix0 + lx + 0.5) * c;
+        my = (sw.iy0 + (i - lx) / sw.w) * c + c / 2;
+        rr = c * 0.16;
+        ctx.moveTo(mx + rr, my);
+        ctx.arc(mx, my, rr, 0, Math.PI * 2);
+        if (++n === run) { ctx.stroke(); ctx.beginPath(); n = 0; }
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      n = 0;
+      for (k = 0; k < MARK_MINE.length; k++) {
+        i = MARK_MINE[k];
+        lx = i % sw.w;
+        mx = (sw.ix0 + lx + 0.5) * c;
+        my = (sw.iy0 + (i - lx) / sw.w) * c + c / 2;
+        rr = c * 0.16;
+        for (a = 0; a < 8; a++) {
+          var ang = a * Math.PI / 4;
+          ctx.moveTo(mx + Math.cos(ang) * rr * 1.2, my + Math.sin(ang) * rr * 1.2);
+          ctx.lineTo(mx + Math.cos(ang) * rr * 1.85, my + Math.sin(ang) * rr * 1.85);
+        }
+        if (++n === run) { ctx.stroke(); ctx.beginPath(); n = 0; }
+      }
+      ctx.stroke();
+      // the numbers: the font is set once and the colour once per value, so the
+      // canvas resolves its paint eight times a frame instead of once per cell
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '700 ' + Math.round(c * this.LOOK.numScale) + 'px system-ui, sans-serif';
+      for (var v = 1; v <= 8; v++) {
+        var bucket = MARK_NUM[v];
+        if (!bucket.length) continue;
+        ctx.fillStyle = NUM_TINT[v];
+        for (k = 0; k < bucket.length; k++) {
+          i = bucket[k];
+          lx = i % sw.w;
+          wy = (sw.iy0 + (i - lx) / sw.w) * c + c / 2 + 1;
+          ctx.fillText(NUM_STR[v], (sw.ix0 + lx + 0.5) * c, wy);
+        }
+      }
+    },
+
     // the minesweeper layer: cleared cells, their numbers, exposed mines, flags, and
     // the green cursor marking the cell the player's head is in (where a dig lands)
     drawSweeper: function (ctx, world, left, top, right, bottom, zoom) {
       var sw = world.sweeper;
       if (!sw) return;
-      var LK = this.LOOK;
       var c = sw.cell;
       var lx0 = Math.max(0, Math.floor(left / c) - sw.ix0);
       var lx1 = Math.min(sw.w - 1, Math.floor(right / c) - sw.ix0);
       var ly0 = Math.max(0, Math.floor(top / c) - sw.iy0);
       var ly1 = Math.min(sw.h - 1, Math.floor(bottom / c) - sw.iy0);
-      var fs = Math.round(c * LK.numScale);
-      var numFont = '700 ' + fs + 'px system-ui, sans-serif';
+      // the passes painted after this one inherit the text cursor, and the snake
+      // nameplates set only their alignment: leave the same alignment and baseline
+      // the per-cell pass left behind, or the labels sit a font ascent off
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       // paint strictly inside the arena circle: edge cells are playable (their centre
@@ -211,37 +374,7 @@
       ctx.beginPath();
       ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
       ctx.clip();
-      for (var ly = ly0; ly <= ly1; ly++) {
-        var wy = (sw.iy0 + ly) * c;
-        for (var lx = lx0; lx <= lx1; lx++) {
-          var i = ly * sw.w + lx;
-          if (!sw.inside[i]) continue;
-          var wx = (sw.ix0 + lx) * c;
-          var st = sw.state[i];
-          if (st === 2) {
-            ctx.fillStyle = this.paints.washFlag;
-            ctx.fillRect(wx, wy, c, c);
-            this.drawFlag(ctx, wx, wy, c);
-          } else if (st === 0) {
-            continue;   // hidden cells are just the grid
-          } else if (sw.mine[i]) {
-            ctx.fillStyle = this.paints.washMine;
-            ctx.fillRect(wx, wy, c, c);
-            this.drawMine(ctx, wx, wy, c);
-          } else {
-            ctx.fillStyle = this.paints.washRevealed;
-            ctx.fillRect(wx, wy, c, c);
-            var n = sw.adj[i];
-            if (n > 0) {
-              ctx.font = numFont;
-              ctx.fillStyle = NUM_TINT[n];
-              ctx.fillText(String(n), wx + c / 2, wy + c / 2 + 1);
-            }
-          }
-        }
-      }
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
+      this.drawMarks(ctx, sw, lx0, lx1, ly0, ly1, c, true);
 
       // the cursor marks where a dig lands: the square under the pointer when one is
       // about, otherwise the head's square (keys and touch buttons dig where you are)
@@ -277,73 +410,13 @@
       var lx1 = Math.min(sw.w - 1, Math.floor(right / c) - sw.ix0);
       var ly0 = Math.max(0, Math.floor(top / c) - sw.iy0);
       var ly1 = Math.min(sw.h - 1, Math.floor(bottom / c) - sw.iy0);
-      var fs = Math.round(c * this.LOOK.numScale);
       ctx.save();
       ctx.beginPath();
       ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
       ctx.clip();
       ctx.globalAlpha = this.LOOK.veilAlpha;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = '700 ' + fs + 'px system-ui, sans-serif';
-      for (var ly = ly0; ly <= ly1; ly++) {
-        var wy = (sw.iy0 + ly) * c;
-        for (var lx = lx0; lx <= lx1; lx++) {
-          var i = ly * sw.w + lx;
-          if (!sw.inside[i]) continue;
-          var st = sw.state[i];
-          if (st === 2) {
-            this.drawFlag(ctx, (sw.ix0 + lx) * c, wy, c);
-          } else if (st === 0) {
-            continue;
-          } else if (sw.mine[i]) {
-            this.drawMine(ctx, (sw.ix0 + lx) * c, wy, c);
-          } else if (sw.adj[i] > 0) {
-            ctx.fillStyle = NUM_TINT[sw.adj[i]];
-            ctx.fillText(String(sw.adj[i]), (sw.ix0 + lx + 0.5) * c, wy + c / 2 + 1);
-          }
-        }
-      }
+      this.drawMarks(ctx, sw, lx0, lx1, ly0, ly1, c, false);
       ctx.restore();
-    },
-
-    drawFlag: function (ctx, x, y, c) {
-      var fx = x + c * 0.32, base = y + c * 0.74, top = y + c * 0.24;
-      ctx.strokeStyle = 'rgba(234,252,255,0.85)';
-      ctx.lineWidth = Math.max(1.2, c * 0.03);
-      ctx.beginPath();
-      ctx.moveTo(fx, base);
-      ctx.lineTo(fx, top);
-      ctx.stroke();
-      ctx.fillStyle = '#ff4a5a';
-      ctx.beginPath();
-      ctx.moveTo(fx, top);
-      ctx.lineTo(fx + c * 0.3, top + c * 0.09);
-      ctx.lineTo(fx, top + c * 0.2);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(fx - c * 0.13, base);
-      ctx.lineTo(fx + c * 0.13, base);
-      ctx.stroke();
-    },
-
-    drawMine: function (ctx, x, y, c) {
-      var mx = x + c / 2, my = y + c / 2, rr = c * 0.16;
-      ctx.strokeStyle = '#ff3f5f';
-      ctx.fillStyle = 'rgba(255,63,95,0.4)';
-      ctx.lineWidth = Math.max(1.4, c * 0.025);
-      ctx.beginPath();
-      ctx.arc(mx, my, rr, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      for (var k2 = 0; k2 < 8; k2++) {
-        var a = k2 * Math.PI / 4;
-        ctx.moveTo(mx + Math.cos(a) * rr * 1.2, my + Math.sin(a) * rr * 1.2);
-        ctx.lineTo(mx + Math.cos(a) * rr * 1.85, my + Math.sin(a) * rr * 1.85);
-      }
-      ctx.stroke();
     },
 
     drawBoundary: function (ctx, world, zoom) {

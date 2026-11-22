@@ -142,6 +142,17 @@ What bought that, in order of payoff:
   the win — SwiftShader raster dominates the ~10 ms software frame — but it retires
   a few hundred string allocations per frame on real hardware, and the live-page bench
   measures step −14% game / −25% stressed with draw unregressed.
+- **Sweeper marks pass.** Digging and flagging cells by hand reported a hitch that grew
+  with the part of the board already open: the layer painted every cleared cell on its
+  own, so a dig left behind another per-cell wash plus up to six stroke/fill calls per
+  flag or mine — each of which re-resolved its paint and re-applied the arena clip —
+  and that cost was paid again by every later frame. The visible cells are now walked
+  once into reused lists, and the fills (washes by tint, flag sheets, mine discs, rims,
+  spokes) share paths in runs. The flag's pole and base keep their own stroke: batched
+  with other cells' strokes the software raster widens the antialiased edge of a thin
+  line, which moved the base by ~8% of a channel. Output is otherwise pixel-for-pixel
+  the old painter — max channel delta 4/255, no pixel above 8 — and the layer alone
+  goes 0.059 → **0.049 ms** on the fixed scene, frame ~10.8 → ~10.1 ms.
 
 ### Frame pacing
 
