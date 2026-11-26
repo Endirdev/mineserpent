@@ -73,6 +73,23 @@ export const VIEWS = {
   worst: { w: 2560, h: 1440, zoom: 0.4, camera: 'center', reveal: 'full' },
 };
 
+// a --look "bandMul=2.7,glass=false" string as an object-literal body for the page,
+// values kept as JS literals so booleans survive
+export function lookLiteral(str) {
+  let body = '';
+  for (const kv of String(str || '').split(',')) {
+    const at = kv.indexOf('=');
+    if (at < 0) continue;
+    const k = kv.slice(0, at).trim();
+    const v = kv.slice(at + 1).trim();
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)) continue;
+    const lit = (v === 'true' || v === 'false') ? v : String(Number(v));
+    if (lit === 'NaN') continue;
+    body += (body ? ', ' : '') + k + ': ' + lit;
+  }
+  return body;
+}
+
 export async function openPage(vw, vh, scale) {
   const browser = await puppeteer.launch({
     executablePath: chrome,

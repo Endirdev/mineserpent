@@ -412,7 +412,8 @@
     // 0/1 knobs are shown off/on; step 0.5 suits the halo width
     var ranges = {
       stripeAlpha: [0, 1], bandMul: [0.5, 3], rimAlpha: [0, 1],
-      rimGrow: [0, 12, 0.5], glass: [0, 1, 1], veilAlpha: [0, 0.8], headDisc: [0, 1, 1],
+      rimGrow: [0, 12, 0.5], glass: [0, 1, 1], rimPlayerOnly: [0, 1, 1],
+      glassPlayerOnly: [0, 1, 1], veilAlpha: [0, 0.8], veilPlayerOnly: [0, 1, 1], headDisc: [0, 1, 1],
       washRevealed: [0, 0.3], washFlag: [0, 0.3], washMine: [0, 0.5],
       cursorAlpha: [0, 1], numScale: [0.15, 0.8]
     };
@@ -432,15 +433,22 @@
       sl.min = String(range[0]);
       sl.max = String(range[1]);
       sl.step = String(range[2] || 0.01);
-      sl.value = String(LK[k]);
+      // a range input cannot hold "false": an invalid value snaps to its default,
+      // which for 0..1 is the midpoint 0.5 — that would show a boolean knob as on
+      // and leave it stuck there. Booleans start as 0/1 numbers
+      sl.value = String(typeof LK[k] === 'boolean' ? (LK[k] ? 1 : 0) : LK[k]);
       var fmt = function (v) {
-        return (k === 'headDisc' || k === 'glass') ? (parseFloat(v) >= 0.5 ? 'on' : 'off') : v;
+        // any knob shipped as a boolean is shown off/on rather than 0/1
+        if (SHIPLOOK[k] === true || SHIPLOOK[k] === false) return parseFloat(v) >= 0.5 ? 'on' : 'off';
+        return v;
       };
       val.textContent = fmt(sl.value);
       var apply = function () {
         var v = parseFloat(sl.value);
         if (v !== v) return;
-        LK[k] = v;
+        // back to a boolean when the shipped knob is one, so the painter's tests
+        // (LK.glass, LK.rimPlayerOnly) keep seeing true/false
+        LK[k] = (typeof SHIPLOOK[k] === 'boolean') ? v >= 0.5 : v;
         val.textContent = fmt(sl.value);
         if (k in paints) window.MineserpentRender.refreshPaints();
       };

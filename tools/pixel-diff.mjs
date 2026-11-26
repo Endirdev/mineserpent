@@ -21,9 +21,13 @@
  *   node tools/pixel-diff.mjs . 9e21ae7             # working tree vs a commit
  *   node tools/pixel-diff.mjs --view worst          # 2560x1440 zoom 0.40, all open
  *   node tools/pixel-diff.mjs --dpr 2               # HiDPI: dpr 2 exercises the bake at device scale
+ *   node tools/pixel-diff.mjs --view worst --look rimGrow=0,glass=false,veilAlpha=0
+ *     # dials LOOK on B only, so with the same code on both sides the diff reads as
+ *     # "how far does this look move the picture"; a player-only knob implies a
+ *     # player, so the scene pins its camera subject as one
  *   exit status 1 means a pixel moved by more than 8/255
  */
-import { SCENE, REVEAL_ALL, VIEW, VIEWS, openPage } from './bench-common.mjs';
+import { SCENE, REVEAL_ALL, VIEW, VIEWS, openPage, lookLiteral } from './bench-common.mjs';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
@@ -31,11 +35,13 @@ const FILE = 'js/render.js';
 
 let view = 'normal';
 let scale = 1;
+let look = '';
 const refs = [];
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i];
   if (a === '--view') view = process.argv[++i];
   else if (a === '--dpr') scale = Number(process.argv[++i]);
+  else if (a === '--look') look = process.argv[++i];
   else refs.push(a);
 }
 const refA = refs[0] || 'work';
@@ -48,6 +54,7 @@ function source(ref) {
 
 const srcA = source(refA);
 const srcB = source(refB);
+const lookBody = lookLiteral(look);
 const preset = VIEWS[view];
 
 const { browser, tab } = await openPage(preset.w, preset.h, scale);
@@ -56,6 +63,7 @@ const out = await tab.evaluate(`
   (() => {
     ${SCENE}
     ${preset.reveal === 'full' ? REVEAL_ALL : ''}
+    ${/PlayerOnly/.test(look) ? 'if (w.snakes.every(function (s) { return !s.player; })) big.player = true;' : ''}
     const view = { x: ${preset.camera === 'center' ? '0' : 'big.x()'},
                    y: ${preset.camera === 'center' ? '0' : 'big.y()'},
                    zoom: ${preset.zoom}, shakeX: 0, shakeY: 0, lerp: 1 };
@@ -79,6 +87,17 @@ const out = await tab.evaluate(`
     }
     A.init(canvas);
     B.init(canvas);
+    // a dialled look belongs to B only: A keeps the shipped table, so the diff
+    // reads as "how much does this look move the picture", with the same code
+    // on both sides when the two refs are the same
+    const LOOK_B = { ${lookBody} };
+    const lookApplied = [];
+    for (const lk in LOOK_B) {
+      if (!(lk in B.LOOK)) continue;
+      B.LOOK[lk] = LOOK_B[lk];
+      lookApplied.push(lk + '=' + LOOK_B[lk]);
+    }
+    if (lookApplied.length && B.refreshPaints) B.refreshPaints();
     const ctx = canvas.getContext('2d', { alpha: false });
 
     // what a pass leaves in the context, for the state probe
@@ -173,13 +192,13 @@ const out = await tab.evaluate(`
       stateDiff, counts,
       segs: w.snakes.reduce(function (acc, s) { return acc + (s.dead ? 0 : s.pts.length); }, 0),
       alive: w.snakes.filter(function (s) { return !s.dead; }).length,
-      revealed: w.sweeper.revealed, flags: w.sweeper.flags };
+      revealed: w.sweeper.revealed, flags: w.sweeper.flags, look: lookApplied };
   })()
 `);
 
 await browser.close();
 
-console.log(`== ${view} — ${preset.w}x${preset.h} at scale ${scale} (measured dpr ${out.dprUsed}) zoom ${preset.zoom} camera ${preset.camera} reveal ${preset.reveal} | A=${refA} B=${refB} (${FILE}) ==`);
+console.log(`== ${view} — ${preset.w}x${preset.h} at scale ${scale} (measured dpr ${out.dprUsed}) zoom ${preset.zoom} camera ${preset.camera} reveal ${preset.reveal} | A=${refA} B=${refB} (${FILE})${out.look.length ? ' | B dialled: ' + out.look.join(' ') : ''} ==`);
 console.log(`scene: ${out.alive} snakes / ${out.segs} body pts, ${out.revealed} revealed / ${out.flags} flags`);
 if (out.selfDiff) {
   console.log(`purity guard FAILED: the same painter differs by ${out.selfDiff} px above 8 (max ${out.selfMax}) — the scene is not reproducible, so the numbers below are noise`);

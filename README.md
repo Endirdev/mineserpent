@@ -110,6 +110,7 @@ node tools/bench-pass.mjs              # what each pass of a frame is worth, bot
 node tools/pixel-diff.mjs . 9e21ae7    # two painters, one scene: how many pixels moved
 node tools/bench-pacing.mjs --simhz=144  # frame pacing emulating a 144Hz display
 node tools/bench-pass.mjs --look glass=false,veilAlpha=0  # price a dialled look
+node tools/pixel-diff.mjs . . --view worst --look rimPlayerOnly=true  # what a look does to the picture
 ```
 
 Reading the render benches needs three facts about how they run:
@@ -243,37 +244,84 @@ scene, same sitting, and none of them beat it.
   raster before it costs anything.
 
   The look-coupled route is the veil: `LOOK.veilAlpha` at 0 turns the
-  `drawSweeperOverlay` pass off, retiring its **6.2 ms (10%)** of the worst frame, and
-  covered marks then read only through the body's stripe windows — a look change, and
+  `drawSweeperOverlay` pass off, retiring ~10% of the worst frame, and covered marks
+  then read only through the body's stripe windows — a look change, and
   not one this pass has taken.
 
-  What those knobs are worth, priced in one sitting against the shipped look
-  (`tools/bench-pass.mjs --look`), both cameras:
+  Cost per look, one sitting of `tools/bench-pass.mjs --look` (median frame at each
+  camera; the snakes column is that slice's mean at the worst camera):
 
-  | look | worst draw | normal draw | snakes, worst |
+  | look | worst frame | normal frame | snakes, worst |
   | --- | --- | --- | --- |
-  | shipped (`rimGrow 5`, `glass` on, `veilAlpha 0.1`) | 68.9 ms | 10.9 ms | 31.0 ms |
-  | `rimGrow=0` — no halo stroke | 56.7 ms | 8.08 ms | 21.5 ms |
-  | `glass=false` — one solid tube, no dash, no stripe pass | 43.2 ms | — | 12.5 ms |
-  | `veilAlpha=0` — no mark veil over the bodies | 60.8 ms | 10.9 ms | 31.6 ms |
-  | `rimGrow=0,veilAlpha=0,bandMul=2.7` | 44.1 ms | — | 17.3 ms |
-  | `glass=false,veilAlpha=0` | — | 5.19 ms | 2.69 ms |
+  | shipped (`rimGrow 5`, `glass` on, `veilAlpha 0.1`) | 50.1 ms | 8.80 ms | 28.3 ms |
+  | `rimGrow=0` — no halo stroke on anything | 41.3 ms | 6.80 ms | 19.2 ms |
+  | `rimPlayerOnly=true` — halo on your snake only | 41.4 ms | 6.90 ms | 19.1 ms |
+  | `glass=false` — one solid tube, halo still on | 42.7 ms | — | 20.5 ms |
+  | `glassPlayerOnly=true` — bots solid, you keep the glass | 43.6 ms | 7.00 ms | 20.2 ms |
+  | `veilAlpha=0` — no mark veil anywhere | 44.8 ms | — | 28.8 ms |
+  | `veilPlayerOnly=true` — veil under your body only | 46.1 ms | 8.90 ms | 27.7 ms |
+  | all three, everywhere (`rimGrow=0,glass=false,veilAlpha=0`) | 27.1 ms | 4.30 ms | 10.4 ms |
+  | all three, player-only | 28.0 ms | 4.90 ms | 11.0 ms |
 
-  Absolute ms are this machine's software raster and drift ~10% between sittings, so
-  read them as shares of the shipped frame: dropping the halo retires a third of the
-  snake layer, going solid retires 60% of it, and the veil retires a tenth of the
-  frame on its own.
+  Read as shares: the halo is a third of the snake slice, the stripe windows a
+  further 27% of it, and the veil is 5.8 ms — 8% of a worst frame but 0.1 ms (1%)
+  of a mid-play one. Each knob retires its shape whole: `rimGrow=0` takes 9.1 ms of
+  the 28.3 ms slice, `glass=false` takes 7.8, `veilAlpha=0` takes all 5.8 of the
+  overlay pass.
+
+  The player-only question — can the shape changes be limited to the bots? —
+  measures as nearly free, because 43 of the 44 snakes on a worst-case screen are
+  bots. Retiring a shape on the bots only, and keeping your own snake exactly as
+  shipped:
+
+  | shape | retired everywhere | retired on bots only | share kept |
+  | --- | --- | --- | --- |
+  | halo | 9.1 ms | 9.2 ms | ~97%, the gap is measurement noise |
+  | stripe windows | 7.8 ms | 8.1 ms | ~97% |
+  | mark veil | 5.8 ms | 5.2 ms | 89% |
+  | all three | 17.9 ms of slice + 5.8 ms of veil | 17.3 ms + 5.2 ms | 97% / 89% |
+
+  At the normal camera the halo retires 2.17 ms everywhere and 1.90 player-only
+  (88%), and the all-three combo 4.36 and 3.85 (88%) — but the veil retires 0.067 ms
+  either way, so player-only or not is immaterial mid-play. The bench pins the
+  **fattest** snake as the player when a player-only knob is in play, the
+  pessimistic case for a real run: your own body is usually the longest thing on the
+  screen, so yours is the one tube still paying the strokes you kept. `veilPlayerOnly`
+  stamps the cells your body touches — 43 of the 2025 in that scene, printed by
+  `bench-pass` — from the post-step body points with 6 world px of slack, so the
+  veil edge sits on cell boundaries around the tube rather than hugging it, and the
+  walk is a few thousand array writes against the 5.2 ms of paint it retires.
+
+  The appearance half of the same trade, from `pixel-diff` with the look applied to
+  one renderer and the code identical on both sides:
+
+  | look | worst camera | normal camera |
+  | --- | --- | --- |
+  | `rimPlayerOnly=true` | 3.9% of pixels move, 2.4% by more than 8/255 | 4.7%, 3.1% |
+  | `veilPlayerOnly=true` | 2.8% move, 0.35% by more than 8 (max delta 26) | 0.9%, 0.2% |
+  | all three, player-only | 15.2% move, 12.5% by more than 8 | 20.2%, 18.9% |
+
+  So the veil is the saving you cannot see past alpha 26/255 — marks under bot
+  bodies stop ghosting — the halo is a visible thinning of every bot outline, and
+  the solid-bot tube is the loud one.
 
 ### The shape lab
 
 Whether any of those looks is acceptable is a judgement about the picture, not a
 number, so the game page carries a dev panel for dialling it in: press **K** in a run
-to show it (K again hides it). One slider per `LOOK` knob — the seven that shade or
-shape the snakes first (`stripeAlpha`, `bandMul`, `rimAlpha`, `rimGrow`, `glass`,
-`veilAlpha`, `headDisc`), then the board's four — with the value shown beside each, a
-live **`draw ms/frame`** readout so the cost of the look follows the appearance, and an
+to show it (K again hides it). One slider per `LOOK` knob — the ten that shade or
+shape the snakes first (`stripeAlpha`, `bandMul`, `rimAlpha`, `rimGrow`,
+`rimPlayerOnly`, `glass`, `glassPlayerOnly`, `veilAlpha`, `veilPlayerOnly`,
+`headDisc`), then the board's four — with the value shown beside each, a live
+**`draw ms/frame`** readout so the cost of the look follows the appearance, and an
 **Export look** button that writes the `LOOK` table back as typed (a `// was` comment
 marks what moved) for pasting, plus a URL that replays the same look in the page.
+The three `*PlayerOnly` knobs apply a shape change to the bots only, which keeps your
+own snake exactly as shipped. `tools/pixel-diff.mjs` takes the same `--look` string
+and applies it to its B renderer, so `node tools/pixel-diff.mjs . . --view worst --look
+rimPlayerOnly=true,glassPlayerOnly=true,veilPlayerOnly=true` counts how many pixels a
+dialled look moves with the code unchanged — the appearance half of the trade, next
+to the cost table above.
 `LOOK` starts at the shipped values, and the knobbed pass at those defaults is
 pixel-identical to the previous painter — `pixel-diff` reads max channel delta 0 — so
 the lab changes nothing until a slider moves. The panel is dev-only: the shape knobs,

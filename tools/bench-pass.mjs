@@ -22,7 +22,7 @@
  *      # so its shares are comparable with the shipped one. Only LOOK keys apply,
  *      # and the header prints what was applied.
  */
-import { SCENE, REVEAL_ALL, VIEW, VIEWS, openPage } from './bench-common.mjs';
+import { SCENE, REVEAL_ALL, VIEW, VIEWS, openPage, lookLiteral } from './bench-common.mjs';
 
 let want = 'both';
 let frames = 40;
@@ -36,24 +36,19 @@ const names = Object.keys(VIEWS);
 const pick = want === 'both' ? names : [want];
 
 // LOOK overrides as an object literal for the page; values stay JS literals
-let lookBody = '';
-for (const kv of look.split(',')) {
-  const at = kv.indexOf('=');
-  if (at < 0) continue;
-  const k = kv.slice(0, at).trim();
-  const v = kv.slice(at + 1).trim();
-  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)) continue;
-  const lit = (v === 'true' || v === 'false') ? v : String(Number(v));
-  if (lit === 'NaN') continue;
-  lookBody += (lookBody ? ', ' : '') + k + ': ' + lit;
-}
+const lookBody = lookLiteral(look);
 
 for (const key of pick) {
   const preset = VIEWS[key];
   const { browser, tab } = await openPage(preset.w, preset.h);
+  // the pinned scene truncates the cast, which can drop the player snake; a
+  // player-only knob needs one, and marking a survivor changes its colours and
+  // nameplate ink, not the workload, so the shares stay comparable
+  const lookNeedsPlayer = /PlayerOnly/.test(look);
   const out = await tab.evaluate(`
     (() => {
       ${SCENE}
+      ${lookNeedsPlayer ? 'if (w.snakes.every(function (s) { return !s.player; })) big.player = true;' : ''}
       ${preset.reveal === 'full' ? REVEAL_ALL : ''}
       const view = { x: ${preset.camera === 'center' ? '0' : 'big.x()'},
                      y: ${preset.camera === 'center' ? '0' : 'big.y()'},
@@ -190,13 +185,15 @@ for (const key of pick) {
         snakes: { total: cost.snakes, body: cost.snakes - noStroke, face: cost.snakes - noFace,
                   label: cost.snakes - noText, head: cost.snakes - noHead, boost: allBoost - cost.snakes },
         cellsOn, washPx, pelletsOn, culled, glowPx, corePx, devW, devH, dpr, WW, HH, zoom,
-        look: lookApplied };
+        look: lookApplied,
+        veilMask: (() => { let nq = 0; const gq = R._veilGrid; if (gq) for (let qc = 0; qc < gq.length; qc++) if (gq[qc]) nq++; return nq; })(),
+        veilCells: (() => { const gq = R._veilGrid; return gq ? gq.length : 0; })() };
     })()
   `);
 
   const px = out.devW * out.devH;
   const f = out.draw.mean;
-  console.log(`== ${key} — ${out.WW}x${out.HH} dpr ${out.dpr} zoom ${out.zoom} camera ${VIEWS[key].camera} reveal ${VIEWS[key].reveal} | look ${out.look.length ? out.look.join(' ') : 'shipped'} ==`);
+  console.log(`== ${key} — ${out.WW}x${out.HH} dpr ${out.dpr} zoom ${out.zoom} camera ${VIEWS[key].camera} reveal ${VIEWS[key].reveal} | look ${out.look.length ? out.look.join(' ') : 'shipped'}${lookNeedsPlayer ? ' (scene pins the camera subject as the player)' : ''} ==`);
   console.log(`draw()            mean ${out.draw.mean.toFixed(3)}  p50 ${out.draw.p50.toFixed(2)}  p95 ${out.draw.p95.toFixed(2)}  max ${out.draw.max.toFixed(2)} ms`);
   console.log(`this frame        mean ${out.frame.mean.toFixed(3)}  p50 ${out.frame.p50.toFixed(2)}  p95 ${out.frame.p95.toFixed(2)}  max ${out.frame.max.toFixed(2)} ms   (the pass order replicated here)`);
   for (const n of ['snakes', 'sweeper', 'overlay', 'food', 'vignette', 'boundary', 'grid', 'background', 'effects']) {
@@ -206,7 +203,8 @@ for (const key of pick) {
   const s = out.snakes;
   console.log(`drawSnakes split: body strokes ${s.body.toFixed(3)} (${(s.body / s.total * 100).toFixed(0)}%) | head discs ${s.head.toFixed(3)} | face ${s.face.toFixed(3)} | nameplate ${s.label.toFixed(3)} | adding a boost glow to every snake +${s.boost.toFixed(2)}   (sub-splits under ~0.1 ms are at the instrument floor)`);
   console.log(`passes sum ${out.sum.toFixed(3)} ms (forced flush per pass, so this is not the frame)  |  readback floor ${out.floor.toFixed(3)} ms`);
-  console.log(`workload: ${(out.cellsOn)} revealed cells on canvas = ${(out.washPx / px).toFixed(2)} canvas of wash | ${out.pelletsOn} pellets painted, ${out.culled} culled = ${(out.glowPx / px).toFixed(2)} canvas of glow`);
+  console.log(`workload: ${out.cellsOn} revealed cells on canvas = ${(out.washPx / px).toFixed(2)} canvas of wash | ${out.pelletsOn} pellets painted, ${out.culled} culled = ${(out.glowPx / px).toFixed(2)} canvas of glow` +
+    (out.veilCells ? ` | veil mask covers ${out.veilMask} of ${out.veilCells} cells, so only the marks under your own body are ghosted` : ''));
   await browser.close();
   console.log('');
 }

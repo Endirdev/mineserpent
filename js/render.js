@@ -99,10 +99,19 @@
       rimAlpha: 0.79,     // dark rim around the opaque a segments
       rimGrow: 5,         // halo width outside the body. 0 skips the rim stroke: the halo
                           //       is 37% of the body-stroke cost at this width
+      rimPlayerOnly: false, // halo on your own snake only. 43 of the 44 snakes on a
+                          //       worst-case screen are bots, so skipping the bots'
+                          //       halo is nearly the whole saving, and the look stays
+                          //       anchored on the snake you steer
       glass: true,        // the b-stripe windows; false paints one solid tube (2 strokes,
                           //       no dash, no translucent pass) and covered marks stop
                           //       reading through the body
+      glassPlayerOnly: false, // bots go solid, you keep the glass: retires 60% of the
+                          //       snake layer at the worst camera
       veilAlpha: 0.1,     // ghost of covered marks drawn over the snakes; 0 = stripes only
+      veilPlayerOnly: false, // veil only the cells your own body covers, instead of the
+                          //       whole arena: 1248 marks become the few hundred under
+                          //       your snake, and marks under bot bodies stop ghosting
       washRevealed: 0.09, // revealed-cell tint
       washFlag: 0.06,     // flagged-cell tint
       washMine: 0.16,     // exposed-mine tint
@@ -119,6 +128,9 @@
     vignette: null,
     vignetteBitmap: null,
     paints: null,
+    // reused byte grid marking the cells the player's body covers, for the
+    // veilPlayerOnly pass: allocated once per board, cleared with one fill a frame
+    _veilGrid: null,
 
     // the wash/cursor strings are built from LOOK at boot; the shape lab moves LOOK
     // at runtime, so it re-derives them here. Four strings per slider move, never
@@ -259,12 +271,13 @@
     // marks are now gathered in one walk of the cells and the fills share a path,
     // while the thin strokes keep their own call: the software raster antialiases a
     // stroke batched with other cells' strokes on a wider edge than a lone one.
-    drawMarks: function (ctx, sw, lx0, lx1, ly0, ly1, c, wash) {
+    drawMarks: function (ctx, sw, lx0, lx1, ly0, ly1, c, wash, mask) {
       var lx, ly, i, wx, wy, fx, base, top2, mx, my, rr, a, k, n, run = 64;
       var len, k2, j;
       // one walk of the visible cells feeds every pass below: the window is wide
       // and a mark is rare, so re-walking it per sub-shape costed more than the
-      // painting did
+      // painting did. The veil pass can hand a byte grid of the cells it wants,
+      // which keeps every list below down to that region
       MARK_FLAG.length = 0;
       MARK_MINE.length = 0;
       MARK_WASH_F.length = 0;
@@ -276,6 +289,7 @@
           i = ly * sw.w + lx;
           var st = sw.state[i];
           if (st === 0) continue;
+          if (mask && !mask[i]) continue;
           if (st === 2) { MARK_WASH_F.push(i); MARK_FLAG.push(i); }
           else if (sw.mine[i]) { MARK_WASH_M.push(i); MARK_MINE.push(i); }
           else {
@@ -470,7 +484,10 @@
     },
 
     // the veil pass, painted after the snakes: the same glyphs at veilAlpha. 0 turns
-    // it off and leaves visibility entirely to the body's stripe windows
+    // it off and leaves visibility entirely to the body's stripe windows. veilPlayerOnly
+    // restricts it to the cells the player's own body covers: the pass goes from every
+    // mark in the arena (1248 at the worst camera) to the few hundred the body touches,
+    // and the mask walk is a couple thousand array writes against ~6 ms of paint.
     drawSweeperOverlay: function (ctx, world, left, top, right, bottom, zoom) {
       var sw = world.sweeper;
       if (!sw || this.LOOK.veilAlpha <= 0) return;
@@ -479,12 +496,42 @@
       var lx1 = Math.min(sw.w - 1, Math.floor(right / c) - sw.ix0);
       var ly0 = Math.max(0, Math.floor(top / c) - sw.iy0);
       var ly1 = Math.min(sw.h - 1, Math.floor(bottom / c) - sw.iy0);
+      var mask = null;
+      if (this.LOOK.veilPlayerOnly) {
+        var n = sw.w * sw.h;
+        if (!this._veilGrid || this._veilGrid.length !== n) this._veilGrid = new Uint8Array(n);
+        mask = this._veilGrid;
+        mask.fill(0);
+        var ps = null;
+        for (var q = 0; q < world.snakes.length; q++) {
+          var sn = world.snakes[q];
+          if (sn.player && !sn.dead) { ps = sn; break; }
+        }
+        if (!ps) return;   // nothing of yours is on the board to ghost under
+        // the tube the body pass just painted, plus slack: the body is painted
+        // interpolated between the last two steps while these points are the
+        // post-step ones, and the mask is cell-granular (120 world px) anyway
+        var rr = ps.r + this.LOOK.rimGrow * 0.5 + 6;
+        var pts = ps.pts;
+        for (var q2 = 0; q2 < pts.length; q2++) {
+          var p = pts[q2];
+          var cx0 = Math.floor((p.x - rr) / c) - sw.ix0, cx1 = Math.floor((p.x + rr) / c) - sw.ix0;
+          var cy0 = Math.floor((p.y - rr) / c) - sw.iy0, cy1 = Math.floor((p.y + rr) / c) - sw.iy0;
+          for (var yy = cy0; yy <= cy1; yy++) {
+            if (yy < 0 || yy >= sw.h) continue;
+            for (var xx = cx0; xx <= cx1; xx++) {
+              if (xx < 0 || xx >= sw.w) continue;
+              mask[yy * sw.w + xx] = 1;
+            }
+          }
+        }
+      }
       ctx.save();
       ctx.beginPath();
       ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
       ctx.clip();
       ctx.globalAlpha = this.LOOK.veilAlpha;
-      this.drawMarks(ctx, sw, lx0, lx1, ly0, ly1, c, false);
+      this.drawMarks(ctx, sw, lx0, lx1, ly0, ly1, c, false, mask);
       ctx.restore();
     },
 
@@ -601,10 +648,15 @@
         // player can move: rimGrow 0 skips the halo stroke, glass false paints one
         // solid tube. Both defaults, 5 px and true, keep the shipped strokes.
         var band = Math.round(Math.max(9, r * LK.bandMul) * 10) / 10;   // 0.1px step: matches the dash cache
-        var halo = LK.glass ? LK.rimGrow : 0;
+        // the shape knobs are per snake: the player-only variants keep your own tube
+        // exactly as the shipped look and move only the bots, whose share of a
+        // crowded screen is what makes the saving worth taking
+        var mine = s2.player;
+        var windows = LK.glass && (mine || !LK.glassPlayerOnly);
+        var halo = (LK.rimGrow > 0 && (mine || !LK.rimPlayerOnly)) ? LK.rimGrow : 0;
         ctx.save();
         ctx.lineCap = 'butt';
-        if (LK.glass) ctx.setLineDash(this.dashFor(band));
+        if (windows) ctx.setLineDash(this.dashFor(band));
         else ctx.setLineDash([]);
         ctx.lineDashOffset = 0;
         if (halo > 0) {
@@ -615,7 +667,7 @@
         ctx.lineWidth = 2 * r;
         ctx.strokeStyle = s2.skin.a;
         ctx.stroke();
-        if (LK.glass) {
+        if (windows) {
           ctx.lineDashOffset = band;    // half a period over: fills exactly the gaps
           ctx.lineWidth = 2 * r;
           ctx.strokeStyle = paint.stripe;
