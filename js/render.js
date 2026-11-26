@@ -88,9 +88,12 @@
   var Render = {
     // the look: one table of paint settings, so the draw code reads them by name
     // instead of scattering magic numbers through the strokes. The values below are
-    // the shipped look; the shape lab (press L in the page) mutates this table live,
-    // and the two that shade colours (stripeAlpha, rimAlpha) make skinPaint re-shade
-    // the skins that were cached under the old values.
+    // the shipped look — the High graphics level, which keeps the halo, the glass
+    // stripes and the mark veil on the snake you steer and drops them on the bots;
+    // the fidelity table in js/main.js turns knobs off against this table at Medium
+    // and Low. The shape lab (press K in the page) mutates this table live, and the
+    // two that shade colours (stripeAlpha, rimAlpha) make skinPaint re-shade the
+    // skins that were cached under the old values.
     LOOK: {
       stripeAlpha: 0.86,  // glass: opacity of the b-stripe windows (1 = solid stripes,
                           //       0 = board shows fully through the windows)
@@ -99,19 +102,20 @@
       rimAlpha: 0.79,     // dark rim around the opaque a segments
       rimGrow: 5,         // halo width outside the body. 0 skips the rim stroke: the halo
                           //       is 37% of the body-stroke cost at this width
-      rimPlayerOnly: false, // halo on your own snake only. 43 of the 44 snakes on a
-                          //       worst-case screen are bots, so skipping the bots'
-                          //       halo is nearly the whole saving, and the look stays
-                          //       anchored on the snake you steer
+      rimPlayerOnly: true, // halo on your own snake only: this is the shipped look,
+                          //       and 43 of the 44 snakes on a worst-case screen are
+                          //       bots, so it is nearly the whole saving. false puts
+                          //       the halo back on every bot (the old default)
       glass: true,        // the b-stripe windows; false paints one solid tube (2 strokes,
                           //       no dash, no translucent pass) and covered marks stop
                           //       reading through the body
       glassPlayerOnly: false, // bots go solid, you keep the glass: retires 60% of the
                           //       snake layer at the worst camera
       veilAlpha: 0.1,     // ghost of covered marks drawn over the snakes; 0 = stripes only
-      veilPlayerOnly: false, // veil only the cells your own body covers, instead of the
-                          //       whole arena: 1248 marks become the few hundred under
-                          //       your snake, and marks under bot bodies stop ghosting
+      veilPlayerOnly: true, // veil only the cells your own body covers: this is the
+                          //       shipped look, and the mask walk costs a couple of
+                          //       thousand array writes against ~5 ms of paint. false
+                          //       ghosts the marks under every bot body as well
       washRevealed: 0.09, // revealed-cell tint
       washFlag: 0.06,     // flagged-cell tint
       washMine: 0.16,     // exposed-mine tint

@@ -21,16 +21,23 @@
  *      # price a look the shape lab dials in: same pinned scene and same sitting,
  *      # so its shares are comparable with the shipped one. Only LOOK keys apply,
  *      # and the header prints what was applied.
+ *   node tools/bench-pass.mjs --fidelity low
+ *      # price a shipped graphics level: the table lives in js/main.js (FIDELITY,
+ *      # published as window.MineserpentFidelity) and is applied after --look, so
+ *      # a level is the last word, exactly as the page does it. With neither flag
+ *      # the run is pinned to the shipped LOOK table, not to what the page boots at
  */
 import { SCENE, REVEAL_ALL, VIEW, VIEWS, openPage, lookLiteral } from './bench-common.mjs';
 
 let want = 'both';
 let frames = 40;
 let look = '';
+let fidelity = '';
 for (let i = 2; i < process.argv.length; i++) {
   if (process.argv[i] === '--view') want = process.argv[++i];
   else if (process.argv[i] === '--frames') frames = Number(process.argv[++i]);
   else if (process.argv[i] === '--look') look = process.argv[++i];
+  else if (process.argv[i] === '--fidelity') fidelity = process.argv[++i];
 }
 const names = Object.keys(VIEWS);
 const pick = want === 'both' ? names : [want];
@@ -44,16 +51,23 @@ for (const key of pick) {
   // the pinned scene truncates the cast, which can drop the player snake; a
   // player-only knob needs one, and marking a survivor changes its colours and
   // nameplate ink, not the workload, so the shares stay comparable
-  const lookNeedsPlayer = /PlayerOnly/.test(look);
   const out = await tab.evaluate(`
     (() => {
       ${SCENE}
-      ${lookNeedsPlayer ? 'if (w.snakes.every(function (s) { return !s.player; })) big.player = true;' : ''}
       ${preset.reveal === 'full' ? REVEAL_ALL : ''}
       const view = { x: ${preset.camera === 'center' ? '0' : 'big.x()'},
                      y: ${preset.camera === 'center' ? '0' : 'big.y()'},
                      zoom: ${preset.zoom}, shakeX: 0, shakeY: 0, lerp: 1 };
       ${VIEW}
+
+      // the page boots at a fidelity level (High by default); a bench run wants a
+      // known baseline, so pin the shipped table first, then --look, then --fidelity
+      if (window.MineserpentLook0) {
+        for (const rk in window.MineserpentLook0) {
+          if (rk in R.LOOK) R.LOOK[rk] = window.MineserpentLook0[rk];
+        }
+        if (R.refreshPaints) R.refreshPaints();
+      }
 
       // LOOK overrides, so a look dialled in the shape lab can be priced here
       const LOOK_SET = { ${lookBody} };
@@ -64,6 +78,25 @@ for (const key of pick) {
         lookApplied.push(lk + '=' + LOOK_SET[lk]);
       }
       if (lookApplied.length) R.refreshPaints();
+
+      // the shipped ladder, from js/main.js, applied after --look so a level has
+      // the last word, exactly as the page does it
+      ${fidelity ? `
+      const FID = (window.MineserpentFidelity || {})['${fidelity}'] || {};
+      for (const fk in FID) {
+        if (!(fk in R.LOOK)) continue;
+        R.LOOK[fk] = FID[fk];
+        lookApplied.push(fk + '=' + FID[fk]);
+      }
+      if (R.refreshPaints) R.refreshPaints();   // the level moved wash/cursor knobs? re-derive` : ''}
+
+      // a look that says "on your snake only" needs a player in the scene: the
+      // pinned cast truncates the real one, and with no player such a look paints
+      // no halo and no veil at all, so the workload would read as the cheapest one
+      let wantsPlayer = false;
+      for (const wk in R.LOOK) if (/PlayerOnly/.test(wk) && R.LOOK[wk]) wantsPlayer = true;
+      const playerPinned = wantsPlayer && w.snakes.every(function (s) { return !s.player; });
+      if (playerPinned) big.player = true;
 
       function statOf(a) {
         const s = [...a].sort((x, y) => x - y);
@@ -187,13 +220,14 @@ for (const key of pick) {
         cellsOn, washPx, pelletsOn, culled, glowPx, corePx, devW, devH, dpr, WW, HH, zoom,
         look: lookApplied,
         veilMask: (() => { let nq = 0; const gq = R._veilGrid; if (gq) for (let qc = 0; qc < gq.length; qc++) if (gq[qc]) nq++; return nq; })(),
-        veilCells: (() => { const gq = R._veilGrid; return gq ? gq.length : 0; })() };
+        veilCells: (() => { const gq = R._veilGrid; return gq ? gq.length : 0; })(),
+        playerPinned };
     })()
   `);
 
   const px = out.devW * out.devH;
   const f = out.draw.mean;
-  console.log(`== ${key} — ${out.WW}x${out.HH} dpr ${out.dpr} zoom ${out.zoom} camera ${VIEWS[key].camera} reveal ${VIEWS[key].reveal} | look ${out.look.length ? out.look.join(' ') : 'shipped'}${lookNeedsPlayer ? ' (scene pins the camera subject as the player)' : ''} ==`);
+  console.log(`== ${key} — ${out.WW}x${out.HH} dpr ${out.dpr} zoom ${out.zoom} camera ${VIEWS[key].camera} reveal ${VIEWS[key].reveal} | look ${out.look.length ? out.look.join(' ') : 'shipped'}${fidelity ? ' | fidelity ' + fidelity : ''}${out.playerPinned ? ' (scene pins the fattest snake as the player)' : ''} ==`);
   console.log(`draw()            mean ${out.draw.mean.toFixed(3)}  p50 ${out.draw.p50.toFixed(2)}  p95 ${out.draw.p95.toFixed(2)}  max ${out.draw.max.toFixed(2)} ms`);
   console.log(`this frame        mean ${out.frame.mean.toFixed(3)}  p50 ${out.frame.p50.toFixed(2)}  p95 ${out.frame.p95.toFixed(2)}  max ${out.frame.max.toFixed(2)} ms   (the pass order replicated here)`);
   for (const n of ['snakes', 'sweeper', 'overlay', 'food', 'vignette', 'boundary', 'grid', 'background', 'effects']) {

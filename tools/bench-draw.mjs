@@ -74,6 +74,15 @@ const out = await tab.evaluate(`
 
     let big = w.snakes[0];
     for (const s of w.snakes) if (!s.dead && (!big || s.mass > big.mass)) big = s;
+    // the shipped look paints the halo and the veil "on your snake only", and the
+    // cast above was truncated so it may not contain the player: without a player
+    // such a look paints no halo and no veil at all, which would read as a much
+    // cheaper workload than the game plays. Marking a survivor changes its colours
+    // and nameplate ink, not the work, so the shares stay comparable
+    const LOOK0 = MineserpentRender.LOOK;
+    let wantsPlayer = false;
+    for (const wk in LOOK0) if (/PlayerOnly/.test(wk) && LOOK0[wk]) wantsPlayer = true;
+    if (wantsPlayer && w.snakes.every(function (s) { return !s.player; })) big.player = true;
     const view = { x: big.x(), y: big.y(), zoom: 0.7, shakeX: 0, shakeY: 0 };
 
     const N = 300;

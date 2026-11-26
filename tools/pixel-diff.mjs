@@ -23,8 +23,9 @@
  *   node tools/pixel-diff.mjs --dpr 2               # HiDPI: dpr 2 exercises the bake at device scale
  *   node tools/pixel-diff.mjs --view worst --look rimGrow=0,glass=false,veilAlpha=0
  *     # dials LOOK on B only, so with the same code on both sides the diff reads as
- *     # "how far does this look move the picture"; a player-only knob implies a
- *     # player, so the scene pins its camera subject as one
+ *     # "how far does this look move the picture"; either painter wanting a
+ *     # player-only look makes the scene pin its fattest snake as a player, without
+ *     # which "on your snake only" paints nothing and the diff is hollow
  *   exit status 1 means a pixel moved by more than 8/255
  */
 import { SCENE, REVEAL_ALL, VIEW, VIEWS, openPage, lookLiteral } from './bench-common.mjs';
@@ -63,7 +64,6 @@ const out = await tab.evaluate(`
   (() => {
     ${SCENE}
     ${preset.reveal === 'full' ? REVEAL_ALL : ''}
-    ${/PlayerOnly/.test(look) ? 'if (w.snakes.every(function (s) { return !s.player; })) big.player = true;' : ''}
     const view = { x: ${preset.camera === 'center' ? '0' : 'big.x()'},
                    y: ${preset.camera === 'center' ? '0' : 'big.y()'},
                    zoom: ${preset.zoom}, shakeX: 0, shakeY: 0, lerp: 1 };
@@ -98,6 +98,16 @@ const out = await tab.evaluate(`
       lookApplied.push(lk + '=' + LOOK_B[lk]);
     }
     if (lookApplied.length && B.refreshPaints) B.refreshPaints();
+    // a player-only look needs a player in the scene: the pinned cast truncates
+    // the real one, and with no player "on your snake only" would paint no halo
+    // and no veil anywhere, which would make the diff a hollow comparison
+    var wantsPlayer = false;
+    for (var pi = 0; pi < 2; pi++) {
+      var pl = pi ? B : A;
+      for (var pk in pl.LOOK) if (/PlayerOnly/.test(pk) && pl.LOOK[pk]) wantsPlayer = true;
+    }
+    const playerPinned = wantsPlayer && w.snakes.every(function (s) { return !s.player; });
+    if (playerPinned) big.player = true;
     const ctx = canvas.getContext('2d', { alpha: false });
 
     // what a pass leaves in the context, for the state probe
@@ -192,13 +202,13 @@ const out = await tab.evaluate(`
       stateDiff, counts,
       segs: w.snakes.reduce(function (acc, s) { return acc + (s.dead ? 0 : s.pts.length); }, 0),
       alive: w.snakes.filter(function (s) { return !s.dead; }).length,
-      revealed: w.sweeper.revealed, flags: w.sweeper.flags, look: lookApplied };
+      revealed: w.sweeper.revealed, flags: w.sweeper.flags, look: lookApplied, playerPinned };
   })()
 `);
 
 await browser.close();
 
-console.log(`== ${view} — ${preset.w}x${preset.h} at scale ${scale} (measured dpr ${out.dprUsed}) zoom ${preset.zoom} camera ${preset.camera} reveal ${preset.reveal} | A=${refA} B=${refB} (${FILE})${out.look.length ? ' | B dialled: ' + out.look.join(' ') : ''} ==`);
+console.log(`== ${view} — ${preset.w}x${preset.h} at scale ${scale} (measured dpr ${out.dprUsed}) zoom ${preset.zoom} camera ${preset.camera} reveal ${preset.reveal} | A=${refA} B=${refB} (${FILE})${out.look.length ? ' | B dialled: ' + out.look.join(' ') : ''}${out.playerPinned ? ' | scene pins the fattest snake as the player' : ''} ==`);
 console.log(`scene: ${out.alive} snakes / ${out.segs} body pts, ${out.revealed} revealed / ${out.flags} flags`);
 if (out.selfDiff) {
   console.log(`purity guard FAILED: the same painter differs by ${out.selfDiff} px above 8 (max ${out.selfMax}) — the scene is not reproducible, so the numbers below are noise`);

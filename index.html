@@ -52,6 +52,7 @@
     <span>Steer with the mouse</span><span>Left click digs a square, right click flags it, middle click boosts</span>
     <button id="mute" class="ghost">Sound: on</button>
     <button id="music" class="ghost">Music: on</button>
+    <button id="gfx" class="ghost">Graphics: high</button>
     <button id="quit" class="ghost">Quit</button>
   </div>
 </div>
@@ -83,6 +84,15 @@
       </select>
     </label>
 
+    <label class="field">
+      <span>Graphics</span>
+      <select id="fidelity">
+        <option value="high" selected>High &mdash; halo, glass stripes and the mark veil, on your snake</option>
+        <option value="medium">Medium &mdash; no halo, no veil</option>
+        <option value="low">Low &mdash; Medium, and the bots go solid</option>
+      </select>
+    </label>
+
     <button id="play">Play</button>
     <label class="check"><input type="checkbox" id="menu-music" checked> Music &mdash; <i>Neon Drift</i> (synthwave, 92&nbsp;BPM)</label>
     <ul class="keys">
@@ -92,6 +102,7 @@
       <li><b>A &middot; D / &larr; &rarr;</b> steer (no mouse)</li>
       <li><b>S</b> dig &middot; <b>F</b> flag — at the cell your head is on</li>
       <li><b>M</b> mute &middot; <b>Esc</b> menu</li>
+      <li><b>G</b> graphics quality (or click <b>Graphics</b> in the HUD)</li>
     </ul>
   </div>
 </div>

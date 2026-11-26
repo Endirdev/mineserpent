@@ -16,6 +16,7 @@
     minimap: el('minimap'), feed: el('feed'), flash: el('flash'),
     name: el('name'), skins: el('skins'), difficulty: el('difficulty'),
     play: el('play'), again: el('again'), mute: el('mute'), music: el('music'), menuMusic: el('menu-music'),
+    gfx: el('gfx'), fidelity: el('fidelity'),
     length: el('stat-length'), kills: el('stat-kills'), rank: el('stat-rank'),
     boost: el('boost-meter'), topbar: el('top-bar'), topfill: el('top-fill'),
     toplen: el('top-len'), yours: el('yours'),
@@ -107,6 +108,9 @@
   function newRun() {
     var diff = dom.difficulty.value;
     if (!world) world = new S.World({ difficulty: diff });
+    // a menu pick that never fired the change event (a replay URL, a driven page)
+    // still lands at the next run: only when it disagrees, so dialled knobs stay
+    if (dom.fidelity.value !== gfxLevel) setFidelity(dom.fidelity.value);
     var name = (dom.name.value || '').trim().slice(0, 14) || NAMES[Math.floor(Math.random() * NAMES.length)];
     dom.name.value = name;
     me = world.spawnSnake({ name: name, skin: S.SKINS[selectedSkin], player: true, bot: false, mass: CFG.snake.startMass });
@@ -211,6 +215,7 @@
     if ((e.key === 's' || e.key === 'S' || e.key === '.') && !input.keys[e.key]) trySweeper(false);
     if ((e.key === 'f' || e.key === 'F') && !input.keys[e.key]) trySweeper(true);
     if ((e.key === 'k' || e.key === 'K') && !input.keys[e.key]) toggleTune();
+    if ((e.key === 'g' || e.key === 'G') && !input.keys[e.key]) cycleFidelity();
     input.keys[e.key] = true;
   });
   window.addEventListener('keyup', function (e) {
@@ -254,6 +259,45 @@
     dom.mute.textContent = sfx.muted ? 'Sound: off' : 'Sound: on';
     dom.mute.classList.toggle('off', sfx.muted);
   }
+
+  // ------------------------------------------------------- graphics fidelity
+  // A level says what it turns off against the shipped LOOK table; a switch writes
+  // every knob back from that copy and then applies its own overrides, so a level
+  // always lands on a known look, even if the dev lab had dialled knobs. The three
+  // levels ride the costs the shape lab measured (README): the halo is a third of
+  // the snake slice, the mark veil 8% of a wide-open frame, and the bots' glass
+  // stripes another 30% of the slice. High is the shipped look itself, and the
+  // names say what each level drops: High keeps the halo, the glass stripes and
+  // the mark veil on the snake you steer and leaves the bots without them; Medium
+  // also takes the halo and the veil off your snake; Low also makes the bots one
+  // solid tube while you keep the glass.
+  var FIDELITY = {
+    high: {},
+    medium: { rimGrow: 0, veilAlpha: 0 },
+    low: { rimGrow: 0, veilAlpha: 0, glassPlayerOnly: true }
+  };
+  window.MineserpentFidelity = FIDELITY;   // bench-pass reads the same table
+  // the shipped table, copied before anything moves it: a level writes every knob
+  // back from here, so nothing outside its own list can leak across a switch
+  var LOOK0 = {};
+  for (var k0 in R.LOOK) LOOK0[k0] = R.LOOK[k0];
+  window.MineserpentLook0 = LOOK0;         // bench-pass pins this as its baseline
+
+  var gfxLevel = 'high';
+  function setFidelity(level) {
+    if (!FIDELITY[level]) level = 'high';
+    gfxLevel = level;
+    var off = FIDELITY[level];
+    for (var k1 in LOOK0) R.LOOK[k1] = (k1 in off) ? off[k1] : LOOK0[k1];
+    R.refreshPaints();
+    dom.gfx.textContent = 'Graphics: ' + level;
+  }
+  function cycleFidelity() {
+    setFidelity(gfxLevel === 'high' ? 'medium' : gfxLevel === 'medium' ? 'low' : 'high');
+  }
+  setFidelity(dom.fidelity.value);
+  dom.fidelity.addEventListener('change', function () { setFidelity(dom.fidelity.value); });
+  dom.gfx.addEventListener('click', cycleFidelity);
 
   // ------------------------------------------------------------- skin picker
   function buildSkins() {
@@ -708,6 +752,10 @@
       if (nL === nL) LKU[kL] = nL;
     }
   }
+  // the whole ladder in one knob: index.html?fidelity=low. This comes after the
+  // per-knob overrides, so a replay URL can pin a level over dialled knobs
+  if (qs.get('fidelity')) setFidelity(qs.get('fidelity'));
+
   if (qs.get('autostart') === '1') {
     dom.difficulty.value = qs.get('difficulty') || 'classic';
     newRun();

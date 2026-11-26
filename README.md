@@ -110,6 +110,7 @@ node tools/bench-pass.mjs              # what each pass of a frame is worth, bot
 node tools/pixel-diff.mjs . 9e21ae7    # two painters, one scene: how many pixels moved
 node tools/bench-pacing.mjs --simhz=144  # frame pacing emulating a 144Hz display
 node tools/bench-pass.mjs --look glass=false,veilAlpha=0  # price a dialled look
+node tools/bench-pass.mjs --fidelity low    # price a shipped graphics level
 node tools/pixel-diff.mjs . . --view worst --look rimPlayerOnly=true  # what a look does to the picture
 ```
 
@@ -253,7 +254,7 @@ scene, same sitting, and none of them beat it.
 
   | look | worst frame | normal frame | snakes, worst |
   | --- | --- | --- | --- |
-  | shipped (`rimGrow 5`, `glass` on, `veilAlpha 0.1`) | 50.1 ms | 8.80 ms | 28.3 ms |
+  | the look these knobs were dialled against (`rimPlayerOnly=false, veilPlayerOnly=false`, the default before the High level shipped) | 50.1 ms | 8.80 ms | 28.3 ms |
   | `rimGrow=0` — no halo stroke on anything | 41.3 ms | 6.80 ms | 19.2 ms |
   | `rimPlayerOnly=true` — halo on your snake only | 41.4 ms | 6.90 ms | 19.1 ms |
   | `glass=false` — one solid tube, halo still on | 42.7 ms | — | 20.5 ms |
@@ -267,7 +268,10 @@ scene, same sitting, and none of them beat it.
   further 27% of it, and the veil is 5.8 ms — 8% of a worst frame but 0.1 ms (1%)
   of a mid-play one. Each knob retires its shape whole: `rimGrow=0` takes 9.1 ms of
   the 28.3 ms slice, `glass=false` takes 7.8, `veilAlpha=0` takes all 5.8 of the
-  overlay pass.
+  overlay pass. The High default has since shipped with `rimPlayerOnly` and
+  `veilPlayerOnly` already on, so the rows that put a halo or a veil back on the
+  bots describe a look the game no longer plays; the current ladder is priced in
+  the fidelity section below.
 
   The player-only question — can the shape changes be limited to the bots? —
   measures as nearly free, because 43 of the 44 snakes on a worst-case screen are
@@ -305,6 +309,44 @@ scene, same sitting, and none of them beat it.
   bodies stop ghosting — the halo is a visible thinning of every bot outline, and
   the solid-bot tube is the loud one.
 
+### Graphics fidelity
+
+High is what ships: the `LOOK` table carries it, so a level says what it turns off
+against the shipped look rather than adding to it. The menu picks it, **G** and the
+HUD `Graphics` button cycle High, Medium and Low, and `?fidelity=low` pins one. A
+level writes knobs, it does not branch the painter: the switch puts every knob back
+from a copy of the shipped table and then applies its own list, so a level always
+lands on a known look even if the dev lab had dialled sliders.
+
+  | level | knobs it turns off | worst frame | normal frame | snakes, worst |
+  | --- | --- | --- | --- | --- |
+  | High (the shipped table: halo, glass stripes and veil on your snake only) | — | 39.1 ms | 7.20 ms | 20.4 ms |
+  | Medium (`rimGrow=0, veilAlpha=0`) | the halo and the veil, off your snake too | 36.1 ms | 6.80 ms | 20.0 ms |
+  | Low (Medium + `glassPlayerOnly`) | plus the bots' glass stripes | 27.7 ms | 4.90 ms | 10.9 ms |
+  | the look before this change (everything, everywhere) | — | 52.4 ms | 9.20 ms | 29.2 ms |
+
+  One sitting, medians; the veil mask covers 43 of the 2025 board cells under your
+  body wherever a veil still exists, and the sweeper layer costs the same at every
+  level (~9.6 ms of marks at the wide-open camera), so Low still spends a third of
+  its frame on the board.
+
+  High is where the saving is and where the picture is hurt least: the snake you
+  steer is painted exactly as the old default painted it — halo, glass stripes and
+  marks ghosting under its body — while 43 of the 44 snakes on a wide-open screen
+  are bots, so High retires 8.8 of the ~9.4 ms the halo costs and 5.3 of the 5.9 ms
+  of the veil pass, for 6.6% of pixels moved at the worst camera (2.7% of them by
+  more than 8/255, max delta 188: the bots' outlines lose their dark halo). Medium
+  buys 3 ms more and moves a similar number of pixels, but that step takes the halo
+  and the veil off the thing you are looking at. Low is the loud step (15.4% of
+  pixels worst, 20.8% mid-play) and the big one: bots collapse to one solid tube and
+  the snake slice drops from 20.0 to 10.9 ms.
+
+`tools/bench-pass.mjs` prices a level directly (`--fidelity low`, reading the table
+in js/main.js, published as `window.MineserpentFidelity`), and with neither flag it
+pins the shipped table, so the baseline row above is what the game plays. Both
+bench-pass and `pixel-diff` pin the fattest pinned snake as a player when either
+side of the comparison wants a player-only look — with no player in the scene, an
+"on your snake only" look would paint no halo and no veil at all.
 ### The shape lab
 
 Whether any of those looks is acceptable is a judgement about the picture, not a
@@ -322,9 +364,11 @@ and applies it to its B renderer, so `node tools/pixel-diff.mjs . . --view worst
 rimPlayerOnly=true,glassPlayerOnly=true,veilPlayerOnly=true` counts how many pixels a
 dialled look moves with the code unchanged — the appearance half of the trade, next
 to the cost table above.
-`LOOK` starts at the shipped values, and the knobbed pass at those defaults is
-pixel-identical to the previous painter — `pixel-diff` reads max channel delta 0 — so
-the lab changes nothing until a slider moves. The panel is dev-only: the shape knobs,
+`LOOK` starts at the shipped High values, so the lab changes nothing until a slider
+moves; the picture at those defaults is the old painter's with the bots stripped of
+halo and veil — 6.6% of pixels at the worst camera, 2.7% of them by more than 8/255,
+which `pixel-diff . <the commit before this>` counts, while the guard that matters
+for painter changes, the same code on both sides, still reads max channel delta 0. The panel is dev-only: the shape knobs,
 `buildTune`/`toggleTune`, the `k` keydown line, the `tuneOn` lines in the frame loop
 and the `.tune` CSS block are what to delete when the dialled look is shipped, as
 `git log` shows was done once before (`4b6117c`).
