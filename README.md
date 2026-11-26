@@ -237,10 +237,12 @@ What bought that, in order of payoff:
   anyone, and it shipped at **8 device px**: the pass goes 4.5 → **3.8 ms** for 0.47%
   of pixels moved at the worst camera (0.32% by more than 8/255, max delta 52) and
   leaves the mid-play camera pixel-identical, max delta 0 at the same 0.95 ms, since
-  mid-play pellets carry 9.4–20.6 px of halo. `glowMinPx=12` takes it to **1.9 ms**
-  (1.96% of pixels worst, 0.25% and max delta 26 mid-play) and is what Low adds;
-  `glowMul=0` buys the same 2.0 ms at both cameras but moves 3.2% of mid-play pixels,
-  and a tight `glowMul=1.4` only retires 12% — shrinking a halo is not where the cost is.
+  mid-play pellets carry 9.4–20.6 px of halo. The floors step down the ladder: Medium's
+  10 takes the pass to **2.4 ms** (0.81% of pixels worst, 0.03% and max delta 26 mid-play,
+  four pellets in view lose their glow) and Low's 12 to **1.9 ms** (1.50% worst, 0.25%
+  mid-play). `glowMul=0` buys the same 2.0 ms at both cameras but moves 3.2% of mid-play
+  pixels, and a tight `glowMul=1.4` only retires 12% — shrinking a halo is not where the
+  cost is.
 
 ### Shapes that were measured and did not pay
 
@@ -371,30 +373,32 @@ only wins at a run start when something outside the page moved it.
 
   | level | knobs it turns off | worst frame | normal frame | snakes, worst | food, worst |
   | --- | --- | --- | --- | --- | --- |
-  | High (the shipped table: halo, glass stripes and veil on your snake only, and pellet halos floored at `glowMinPx 8` device px) | — | 40.4 ms | 7.80 ms | 21.7 ms | 3.73 ms |
-  | Medium (`rimGrow=0, veilAlpha=0`) | the halo and the veil, off your snake too; the pellet floor stays | 39.0 ms | 7.30 ms | 23.7 ms | 3.82 ms |
-  | Low (Medium + `glassPlayerOnly, glowMinPx=12`) | plus the bots' glass stripes and every halo when you are zoomed out | 27.8 ms | 5.00 ms | 12.1 ms | 1.85 ms |
-  | the look before both changes (everything, everywhere, every halo) | — | 57.9 ms | 10.10 ms | 31.7 ms | 4.63 ms |
+  | High (the shipped table: halo, glass stripes and veil on your snake only, and pellet halos floored at `glowMinPx 8` device px) | — | 38.8 ms | 7.10 ms | 20.0 ms | 3.61 ms |
+  | Medium (`rimGrow=0, veilAlpha=0, glowMinPx=10`) | the halo and the veil off your snake too, and a tighter halo floor | 35.1 ms | 6.70 ms | 20.5 ms | 2.38 ms |
+  | Low (Medium's list + `glassPlayerOnly`, halo floor at 12) | plus the bots' glass stripes and every halo when you are zoomed out | 26.0 ms | 4.80 ms | 11.4 ms | 1.80 ms |
+  | the look before both changes (everything, everywhere, every halo) | — | 54.7 ms | 9.30 ms | 29.8 ms | 4.40 ms |
 
   One sitting, medians; the veil mask covers 43 of the 2025 board cells under your
   body wherever a veil still exists, and the sweeper layer costs the same at every
-  level (~10.4 ms of marks at the wide-open camera), so Low still spends a third of
+  level (~10.2 ms of marks at the wide-open camera), so Low still spends a third of
   its frame on the board.
 
   High is where the saving is and where the picture is hurt least: the snake you
   steer is painted exactly as the old default painted it — halo, glass stripes and
   marks ghosting under its body — while 43 of the 44 snakes on a wide-open screen
   are bots, so High retires 8.8 of the ~9.4 ms the halo costs and 5.3 of the 5.9 ms
-  of the veil pass. The player-only half moves 6.6% of pixels at the worst camera
-  (2.7% of them by more than 8/255, max delta 188: the bots' outlines lose their dark
-  halo) and 5.6% mid-play; the halo floor adds 0.47% at the worst camera and none of
-  mid-play's, for 7.0% and 5.6% all told. Medium buys 1.4 ms more and moves a similar
-  number of pixels, but that step takes the halo and the veil off the thing you are
-  looking at. Low is the loud step (12.6% of pixels moved against High at the worst
-  camera, 17.9% mid-play, max delta 171/179) and the big one: bots collapse to one
-  solid tube, the snake slice drops from 21.7 to 12.1 ms,
-  and Low's own `glowMinPx=12` takes the pellet pass from 3.8 to 1.85 ms by moving a
-  further 1.5% of pixels worst and 0.25% mid-play, max delta 26 mid-play.
+  of the veil pass. Against the look before both changes that is 6.6% of pixels at
+  the worst camera (2.7% of them by more than 8/255, max delta 188: the bots' outlines
+  lose their dark halo) and 5.6% mid-play, and High's own halo floor adds 0.47% at
+  the worst camera and none of mid-play's, for 7.0% and 5.6% all told. Medium is now
+  the cheap step in both senses: the shapes it drops only exist on your own snake, so
+  the whole step is 1.03% of pixels worst and 0.77% mid-play, and most of that is its
+  floor of 10 device px — alone that floor is 0.81% worst, and 0.03% and max delta 26
+  mid-play, the four smallest pellets in view losing their glow. What it buys is 3.7
+  ms of the 38.8 ms frame, 3.61 → 2.38 ms of the food pass. Low stays the loud step
+  (12.6% of pixels against High at the worst camera, 17.9% mid-play, max delta 171/179)
+  and the big one: bots collapse to one solid tube, the snake slice drops from 20.0 to
+  11.4 ms, and its floor of 12 takes the pellet pass to 1.80 ms.
 
 `tools/bench-pass.mjs` prices a level directly (`--fidelity low`, reading the table
 in js/main.js, published as `window.MineserpentFidelity`), and with neither flag it

@@ -272,11 +272,15 @@
   // stripes another 30% of the slice. High is the shipped look itself, and the
   // names say what each level drops: High keeps the halo, the glass stripes and
   // the mark veil on the snake you steer and leaves the bots without them; Medium
-  // also takes the halo and the veil off your snake; Low also makes the bots one
-  // solid tube while you keep the glass.
+  // also takes the halo and the veil off your snake and lets fewer distant halos
+  // through; Low also makes the bots one solid tube while you keep the glass, and
+  // drops the distant halos further still.
   var FIDELITY = {
     high: {},
-    medium: { rimGrow: 0, veilAlpha: 0 },
+    // a floor of 10 device px keeps 267 of the wide-open board's 1287 halos and
+    // 197 of the 201 mid-play ones: the four smallest pellets there lose their
+    // glow, 0.03% of pixels, max delta 26
+    medium: { rimGrow: 0, veilAlpha: 0, glowMinPx: 10 },
     // Low also stops painting halos that are under 12 device px across: at the
     // wide-open camera that is every halo (5.9–11.8 px), and 1.96% of pixels
     // move there and 0.25% mid-play, for 58% of the food pass
