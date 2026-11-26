@@ -109,7 +109,10 @@
     var diff = dom.difficulty.value;
     if (!world) world = new S.World({ difficulty: diff });
     // a menu pick that never fired the change event (a replay URL, a driven page)
-    // still lands at the next run: only when it disagrees, so dialled knobs stay
+    // still lands at the next run: only when it disagrees, so dialled knobs stay.
+    // setFidelity mirrors every level into the select, so the only way to disagree
+    // here is a select moved outside the page — a level taken by G or the HUD
+    // button survives the respawn that used to walk it back
     if (dom.fidelity.value !== gfxLevel) setFidelity(dom.fidelity.value);
     var name = (dom.name.value || '').trim().slice(0, 14) || NAMES[Math.floor(Math.random() * NAMES.length)];
     dom.name.value = name;
@@ -293,6 +296,12 @@
     var off = FIDELITY[level];
     for (var k1 in LOOK0) R.LOOK[k1] = (k1 in off) ? off[k1] : LOOK0[k1];
     R.refreshPaints();
+    // the level is a session setting, not a per-run one, so whatever picked it —
+    // the menu, the HUD button, G or a replay URL — is mirrored into the menu's
+    // select: newRun honours a select that disagrees to catch a menu pick no
+    // change event reported, and without this mirror a level taken mid-run would
+    // look like exactly that and walk back to High at the next respawn
+    dom.fidelity.value = level;
     dom.gfx.textContent = 'Graphics: ' + level;
   }
   function cycleFidelity() {
