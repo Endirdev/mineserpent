@@ -111,7 +111,7 @@ node tools/pixel-diff.mjs . 9e21ae7    # two painters, one scene: how many pixel
 node tools/bench-pacing.mjs --simhz=144  # frame pacing emulating a 144Hz display
 ```
 
-Reading the render benches needs two facts about how they run:
+Reading the render benches needs three facts about how they run:
 
 - **Software raster.** They pass `--disable-gpu`, and headless Chrome builds no GL
   context at all, so absolute ms describe this machine, not your GPU. Only same-machine
@@ -124,6 +124,10 @@ Reading the render benches needs two facts about how they run:
   above `bench-draw`'s batch mean: forcing flushes stops Chromium coalescing across
   frames. The pass *shares* are the point; the absolute ms are not comparable across
   benches.
+- **Camera matters.** `tools/bench-draw.mjs` is pinned to a mid-play camera, where only
+  ~59 revealed cells land on the canvas, so a change whose cost grows with the opened
+  board reads flat there; measure those with `tools/bench-pass.mjs --view worst` (1248
+  revealed cells at zoom 0.40, which is also where the click hitch lives).
 
 `tools/pixel-diff.mjs` is what makes a painter change safe: both painters render the
 same pinned scene in one page, since a screenshot of two runs is not comparable — the
@@ -186,6 +190,18 @@ What bought that, in order of payoff:
   dpr 1 and a forced dpr 2. It trades one more full-canvas buffer (the canvas memory
   doubles; 133 MB at a 4K HiDPI desktop), paid per resize. Fixed-scene draw 10.58 →
   **8.82 ms** in the same sitting.
+- **Sweeper wash runs.** The washes are a per-op cost, not a blend cost: painting the
+  same 1248 rects opaque retired 3% of their 13.1 ms, while merging each row's
+  consecutive same-tint cells into one rect retired 70% of it (1248 rects → 327). An
+  open board's wash went 13.1 → **3.97 ms** and the `drawSweeper` slice 18.3 → **9.9 ms**
+  (29.2% → 15.7% of the flush-forced worst-case frame, p50 61.5 → 53.1 ms). Joining
+  rects is coverage-exact by construction — axis-aligned `fillRect` coverage is whole
+  pixels (0/1), so disjoint rects cover the same set of pixels however they are joined,
+  measured at max channel delta 0 with nothing different at all, at both cameras and a
+  forced dpr 2. Merging into a single path per tint keeps the last 0.8 ms but is not a
+  candidate: one path cancels the shared edges of adjacent subpaths and drops coverage
+  over whole regions. Note that `tools/bench-draw.mjs` reads this change as flat (8.4
+  vs 8.4 ms) — its mid-play camera leaves only ~59 revealed cells on the canvas.
 
 ### Frame pacing
 

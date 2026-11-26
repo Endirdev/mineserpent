@@ -240,6 +240,7 @@
     // stroke batched with other cells' strokes on a wider edge than a lone one.
     drawMarks: function (ctx, sw, lx0, lx1, ly0, ly1, c, wash) {
       var lx, ly, i, wx, wy, fx, base, top2, mx, my, rr, a, k, n, run = 64;
+      var len, k2, j;
       // one walk of the visible cells feeds every pass below: the window is wide
       // and a mark is rare, so re-walking it per sub-shape costed more than the
       // painting did
@@ -266,16 +267,33 @@
       // enough: hidden cells are the only ones whose state stays 0
       // the washes are painted from the same walk, grouped by tint: the squares are
       // disjoint so the order between them cannot matter, and this leaves the
-      // canvas resolving three paints a frame instead of one per cell
+      // canvas resolving three paints a frame instead of one per cell.
+      // Runs are merged along the row: the wash is a per-op cost, not a blend cost
+      // (making the same rects opaque retired 3% of it), so issuing fewer rects is
+      // what pays. An open board's 1248 washes become ~327, and the run covers the
+      // exact same device pixels because it stays inside one row of revealed cells
+      // of one tint: the list is walked row-major, so a run ends where the next
+      // index is not the adjacent cell of the same row
       if (wash) {
         for (n = 0; n < 3; n++) {
           var list = n === 0 ? MARK_WASH_F : (n === 1 ? MARK_WASH_M : MARK_WASH_R);
           if (!list.length) continue;
           ctx.fillStyle = n === 0 ? this.paints.washFlag : (n === 1 ? this.paints.washMine : this.paints.washRevealed);
-          for (k = 0; k < list.length; k++) {
+          len = list.length;
+          k = 0;
+          while (k < len) {
             i = list[k];
             lx = i % sw.w;
-            ctx.fillRect((sw.ix0 + lx) * c, (sw.iy0 + (i - lx) / sw.w) * c, c, c);
+            ly = (i - lx) / sw.w;
+            k2 = k + 1;
+            while (k2 < len) {
+              j = list[k2];
+              if (j !== i + (k2 - k)) break;   // row-major: a gap means another row
+              if (j % sw.w !== lx + (k2 - k)) break;
+              k2++;
+            }
+            ctx.fillRect((sw.ix0 + lx) * c, (sw.iy0 + ly) * c, c * (k2 - k), c);
+            k = k2;
           }
         }
       }
