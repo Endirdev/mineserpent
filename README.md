@@ -364,7 +364,10 @@ against the shipped look rather than adding to it. The menu picks it, **G** and 
 HUD `Graphics` button cycle High, Medium and Low, and `?fidelity=low` pins one. A
 level writes knobs, it does not branch the painter: the switch puts every knob back
 from a copy of the shipped table and then applies its own list, so a level always
-lands on a known look even if the dev lab had dialled sliders.
+lands on a known look even if the dev lab had dialled sliders. The level is a session
+setting, not a per-run one: `setFidelity` mirrors it into the menu's select, so a level
+taken by **G** or the HUD button survives the respawn after a death — and the select
+only wins at a run start when something outside the page moved it.
 
   | level | knobs it turns off | worst frame | normal frame | snakes, worst | food, worst |
   | --- | --- | --- | --- | --- | --- |
