@@ -231,15 +231,16 @@ What bought that, in order of payoff:
   two discs split 2.6 ms halo against 1.9 ms core even though a halo is only 5.9
   device px across here, because a halo is 4.4× the core's area and every one of
   them is an antialiased additive blend on an opaque canvas. The halo is therefore
-  the whole lever, and it ships as two `LOOK` knobs with lab rows, both at the
-  shipped shape by default: `glowMinPx` skips a halo under a device-px floor,
-  `glowMul` shrinks one. A floor of 8 takes the pass to **3.8 ms** (0.47% of pixels
-  moved at the worst camera, 0.32% by more than 8/255, max delta 52) and leaves the
-  mid-play camera pixel-identical, max delta 0 at the same 0.95 ms — mid-play pellets
-  carry 9.4–20.6 px of halo, so the floor never reaches them. A floor of 12 takes it
-  to **1.9 ms** (1.96% of pixels worst, 0.25% and max delta 26 mid-play, 6% off the
-  mid-play pass), `glowMul=0` buys the same 2.0 ms at both cameras but moves 3.2% of
-  mid-play pixels, and a tight `glowMul=1.4` only retires 12%.
+  the whole lever, and it ships as two `LOOK` knobs with lab rows: `glowMinPx` skips a
+  halo under a device-px floor and `glowMul` shrinks one, so the cuts can be dialled
+  without touching the painter. The floor is the one that pays and does not blind
+  anyone, and it shipped at **8 device px**: the pass goes 4.5 → **3.8 ms** for 0.47%
+  of pixels moved at the worst camera (0.32% by more than 8/255, max delta 52) and
+  leaves the mid-play camera pixel-identical, max delta 0 at the same 0.95 ms, since
+  mid-play pellets carry 9.4–20.6 px of halo. `glowMinPx=12` takes it to **1.9 ms**
+  (1.96% of pixels worst, 0.25% and max delta 26 mid-play) and is what Low adds;
+  `glowMul=0` buys the same 2.0 ms at both cameras but moves 3.2% of mid-play pixels,
+  and a tight `glowMul=1.4` only retires 12% — shrinking a halo is not where the cost is.
 
 ### Shapes that were measured and did not pay
 
@@ -365,32 +366,32 @@ level writes knobs, it does not branch the painter: the switch puts every knob b
 from a copy of the shipped table and then applies its own list, so a level always
 lands on a known look even if the dev lab had dialled sliders.
 
-  | level | knobs it turns off | worst frame | normal frame | snakes, worst |
-  | --- | --- | --- | --- | --- |
-  | High (the shipped table: halo, glass stripes and veil on your snake only) | — | 39.1 ms | 7.20 ms | 20.4 ms |
-  | Medium (`rimGrow=0, veilAlpha=0`) | the halo and the veil, off your snake too | 36.1 ms | 6.80 ms | 20.0 ms |
-  | Low (Medium + `glassPlayerOnly`) | plus the bots' glass stripes | 27.7 ms | 4.90 ms | 10.9 ms |
-  | the look before this change (everything, everywhere) | — | 52.4 ms | 9.20 ms | 29.2 ms |
+  | level | knobs it turns off | worst frame | normal frame | snakes, worst | food, worst |
+  | --- | --- | --- | --- | --- | --- |
+  | High (the shipped table: halo, glass stripes and veil on your snake only, and pellet halos floored at `glowMinPx 8` device px) | — | 40.4 ms | 7.80 ms | 21.7 ms | 3.73 ms |
+  | Medium (`rimGrow=0, veilAlpha=0`) | the halo and the veil, off your snake too; the pellet floor stays | 39.0 ms | 7.30 ms | 23.7 ms | 3.82 ms |
+  | Low (Medium + `glassPlayerOnly, glowMinPx=12`) | plus the bots' glass stripes and every halo when you are zoomed out | 27.8 ms | 5.00 ms | 12.1 ms | 1.85 ms |
+  | the look before both changes (everything, everywhere, every halo) | — | 57.9 ms | 10.10 ms | 31.7 ms | 4.63 ms |
 
   One sitting, medians; the veil mask covers 43 of the 2025 board cells under your
   body wherever a veil still exists, and the sweeper layer costs the same at every
-  level (~9.6 ms of marks at the wide-open camera), so Low still spends a third of
+  level (~10.4 ms of marks at the wide-open camera), so Low still spends a third of
   its frame on the board.
 
   High is where the saving is and where the picture is hurt least: the snake you
   steer is painted exactly as the old default painted it — halo, glass stripes and
   marks ghosting under its body — while 43 of the 44 snakes on a wide-open screen
   are bots, so High retires 8.8 of the ~9.4 ms the halo costs and 5.3 of the 5.9 ms
-  of the veil pass, for 6.6% of pixels moved at the worst camera (2.7% of them by
-  more than 8/255, max delta 188: the bots' outlines lose their dark halo). Medium
-  buys 3 ms more and moves a similar number of pixels, but that step takes the halo
-  and the veil off the thing you are looking at. Low is the loud step (15.4% of
-  pixels worst, 20.8% mid-play) and the big one: bots collapse to one solid tube and
-  the snake slice drops from 20.0 to 10.9 ms. No level touches the pellet halo,
-  another 4.5 ms of the worst frame: `glowMinPx` and `glowMul` are the lab's for it,
-  and the cheapest honest cut there (`glowMinPx=8`, pixel-identical mid-play, 15% of
-  the pass for 0.47% of pixels at the wide-open camera) is a smaller trade than this
-  ladder takes, so it stays a dial and not a level.
+  of the veil pass. The player-only half moves 6.6% of pixels at the worst camera
+  (2.7% of them by more than 8/255, max delta 188: the bots' outlines lose their dark
+  halo) and 5.6% mid-play; the halo floor adds 0.47% at the worst camera and none of
+  mid-play's, for 7.0% and 5.6% all told. Medium buys 1.4 ms more and moves a similar
+  number of pixels, but that step takes the halo and the veil off the thing you are
+  looking at. Low is the loud step (12.6% of pixels moved against High at the worst
+  camera, 17.9% mid-play, max delta 171/179) and the big one: bots collapse to one
+  solid tube, the snake slice drops from 21.7 to 12.1 ms,
+  and Low's own `glowMinPx=12` takes the pellet pass from 3.8 to 1.85 ms by moving a
+  further 1.5% of pixels worst and 0.25% mid-play, max delta 26 mid-play.
 
 `tools/bench-pass.mjs` prices a level directly (`--fidelity low`, reading the table
 in js/main.js, published as `window.MineserpentFidelity`), and with neither flag it

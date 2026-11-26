@@ -133,11 +133,14 @@
                           //       of the food layer (2.6 of 4.7 ms at the wide-open
                           //       camera), because every one of them is an additive
                           //       antialiased blend
-      glowMinPx: 0,       // skip a halo when the whole glow is under this many device
-                          //       px: 0 never skips. The pellets are 1.3–2.8 px across
-                          //       at the wide-open camera and 2.3–4.9 mid-play, so a
-                          //       floor of 8 cuts 18% of the layer where you are zoomed
-                          //       out and moves no pixel at all mid-play
+      glowMinPx: 8,       // skip a halo when the whole glow is under this many device
+                          //       px: this is the shipped floor. A mid-play pellet's glow
+                          //       is 9.4–20.6 px across, so the floor never reaches it
+                          //       and mid-play is pixel-identical, while the wide-open
+                          //       board's 5.9–11.8 px halos stop costing an additive
+                          //       blend each (4.5 → 3.8 ms, 0.47% of pixels moved, max
+                          //       delta 52). 0 always paints every halo; Low's 12 kills
+                          //       every one of them when you are zoomed out
       headDisc: true,     // opaque head exception to the lattice (false = all stripes)
     },
 

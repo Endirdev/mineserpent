@@ -274,7 +274,10 @@
   var FIDELITY = {
     high: {},
     medium: { rimGrow: 0, veilAlpha: 0 },
-    low: { rimGrow: 0, veilAlpha: 0, glassPlayerOnly: true }
+    // Low also stops painting halos that are under 12 device px across: at the
+    // wide-open camera that is every halo (5.9–11.8 px), and 1.96% of pixels
+    // move there and 0.25% mid-play, for 58% of the food pass
+    low: { rimGrow: 0, veilAlpha: 0, glassPlayerOnly: true, glowMinPx: 12 }
   };
   window.MineserpentFidelity = FIDELITY;   // bench-pass reads the same table
   // the shipped table, copied before anything moves it: a level writes every knob
