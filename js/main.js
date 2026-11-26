@@ -210,6 +210,7 @@
     // digging on key-hold auto-repeat would fire every frame: only take fresh presses
     if ((e.key === 's' || e.key === 'S' || e.key === '.') && !input.keys[e.key]) trySweeper(false);
     if ((e.key === 'f' || e.key === 'F') && !input.keys[e.key]) trySweeper(true);
+    if ((e.key === 'k' || e.key === 'K') && !input.keys[e.key]) toggleTune();
     input.keys[e.key] = true;
   });
   window.addEventListener('keyup', function (e) {
@@ -372,6 +373,131 @@
     });
   }
 
+  // ------------------------------------------------------------- dev tuning panel
+  // Playground sliders for every MineserpentRender.LOOK knob. The seven that shade
+  // or shape the snakes are listed first because they are the ones whose value
+  // changes the work a frame does: the body cost tracks painted area, so rimGrow 0
+  // drops the halo stroke (37% of the body-stroke cost at the shipped 5 px),
+  // glass false paints one solid tube (no dash, no translucent pass) and
+  // veilAlpha 0 retires the mark veil pass over the snakes (10% of a worst frame).
+  // A live draw ms readout shows the cost of whatever look is dialled in, and
+  // Export writes the LOOK block (clipboard, and shown for selecting) plus a URL
+  // that replays it. DEV ONLY — delete buildTune/toggleTune, the 'k' keydown
+  // line, the tuneOn lines in frame() and the .tune CSS block when shipping.
+  var tunePanel = null;
+  var tuneCostLine = null;
+  var tuneOn = false;
+  var tuneSum = 0, tuneN = 0, tuneMax = 0, tuneAt = 0;
+  var SHIPLOOK = null;
+
+  function buildTune() {
+    var LK = window.MineserpentRender.LOOK;
+    SHIPLOOK = {};
+    for (var k0 in LK) SHIPLOOK[k0] = LK[k0];
+
+    var p = document.createElement('div');
+    p.className = 'tune tune-off';   // hidden until K shows it: a bench or a QA run
+    var head = document.createElement('div');
+    head.className = 'thead';
+    head.textContent = 'Look knobs \u2014 dev only (K shows / hides)';
+    p.appendChild(head);
+
+    // the cost line first: sliders below it never shift it, so it stays legible
+    var cost = document.createElement('div');
+    cost.className = 'tcost';
+    cost.textContent = 'draw \u2014 ms/frame';
+    p.appendChild(cost);
+    tuneCostLine = cost;
+
+    // 0/1 knobs are shown off/on; step 0.5 suits the halo width
+    var ranges = {
+      stripeAlpha: [0, 1], bandMul: [0.5, 3], rimAlpha: [0, 1],
+      rimGrow: [0, 12, 0.5], glass: [0, 1, 1], veilAlpha: [0, 0.8], headDisc: [0, 1, 1],
+      washRevealed: [0, 0.3], washFlag: [0, 0.3], washMine: [0, 0.5],
+      cursorAlpha: [0, 1], numScale: [0.15, 0.8]
+    };
+    // only these four go through buildPaints, so only they need the strings re-derived
+    var paints = { washRevealed: 1, washFlag: 1, washMine: 1, cursorAlpha: 1 };
+
+    function tuneRow(k, range) {
+      var row = document.createElement('div');
+      row.className = 'trow';
+      var lbl = document.createElement('span');
+      lbl.className = 'tlbl';
+      lbl.textContent = k;
+      var val = document.createElement('span');
+      val.className = 'tval';
+      var sl = document.createElement('input');
+      sl.type = 'range';
+      sl.min = String(range[0]);
+      sl.max = String(range[1]);
+      sl.step = String(range[2] || 0.01);
+      sl.value = String(LK[k]);
+      var fmt = function (v) {
+        return (k === 'headDisc' || k === 'glass') ? (parseFloat(v) >= 0.5 ? 'on' : 'off') : v;
+      };
+      val.textContent = fmt(sl.value);
+      var apply = function () {
+        var v = parseFloat(sl.value);
+        if (v !== v) return;
+        LK[k] = v;
+        val.textContent = fmt(sl.value);
+        if (k in paints) window.MineserpentRender.refreshPaints();
+      };
+      sl.addEventListener('input', apply);
+      sl.addEventListener('change', apply);
+      row.appendChild(lbl);
+      row.appendChild(sl);
+      row.appendChild(val);
+      return row;
+    }
+    for (var k1 in ranges) {
+      if (k1 in LK) p.appendChild(tuneRow(k1, ranges[k1]));
+    }
+
+    var msg = document.createElement('div');
+    msg.className = 'tmsg';
+    msg.textContent = 'Export copies the LOOK block (paste it back as typed) and a URL replaying it';
+    p.appendChild(msg);
+    var out = document.createElement('div');
+    out.className = 'tout';
+    p.appendChild(out);
+    var exp = document.createElement('button');
+    exp.className = 'texp';
+    exp.textContent = 'Export look';
+    exp.addEventListener('click', function () {
+      var lines = [];
+      var parts = [];
+      for (var k2 in LK) {
+        var v = LK[k2];
+        if (typeof SHIPLOOK[k2] === 'boolean') v = !(v === 0 || v === false);
+        else if (typeof v === 'number') v = Math.round(v * 1000) / 1000;
+        var moved = SHIPLOOK[k2] !== LK[k2];
+        // the comment marks what a dialled look changed, so pasting it back into
+        // the LOOK table is reviewable at a glance
+        lines.push('      ' + k2 + ': ' + v + ',' + (moved ? '  // was ' + SHIPLOOK[k2] : ''));
+        parts.push(k2 + '=' + v);
+      }
+      var url = location.href.split('?')[0] + '?' + parts.join('&');
+      out.textContent = lines.join('\n') + '\n\n' + url;
+      // headless Chrome and non-secure contexts have no clipboard: the block is
+      // shown in the panel either way, so a rejected write is not an error
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(out.textContent).catch(function () { });
+      }
+    });
+    p.appendChild(exp);
+    document.body.appendChild(p);
+    tunePanel = p;
+  }
+
+  function toggleTune() {
+    if (!tunePanel) return;
+    tuneOn = !tuneOn;
+    if (tuneOn) tunePanel.classList.remove('tune-off');
+    else tunePanel.classList.add('tune-off');
+  }
+
   function showDeath(killerName, cause) {
     state = 'dead';
     if (window.MineserpentMusic) window.MineserpentMusic.duck(true);
@@ -485,12 +611,34 @@
     if (me && me.kills > lastKills) { sfx.kill(); }
     lastKills = me ? me.kills : 0;
 
-    if (world) R.draw(world, {
-      x: cam.x, y: cam.y, zoom: cam.zoom,
-      shakeX: (Math.random() - 0.5) * shake,
-      shakeY: (Math.random() - 0.5) * shake,
-      lerp: lerp
-    });
+    if (world) {
+      var camView = {
+        x: cam.x, y: cam.y, zoom: cam.zoom,
+        shakeX: (Math.random() - 0.5) * shake,
+        shakeY: (Math.random() - 0.5) * shake,
+        lerp: lerp
+      };
+      // only the lab pays the clock: with the panel hidden the call stays bare,
+      // so the shipped loop spends nothing on the readout
+      if (tuneOn) {
+        var t0 = performance.now();
+        R.draw(world, camView);
+        var ms = performance.now() - t0;
+        tuneSum += ms;
+        tuneN++;
+        if (ms > tuneMax) tuneMax = ms;
+        if (now - tuneAt > 250) {
+          tuneAt = now;
+          if (tuneCostLine) {
+            tuneCostLine.textContent = 'draw ' + (tuneSum / Math.max(1, tuneN)).toFixed(2) +
+              ' ms/frame  max ' + tuneMax.toFixed(2) + '  ' + fps.toFixed(0) + ' fps';
+          }
+          tuneSum = 0; tuneN = 0; tuneMax = 0;
+        }
+      } else {
+        R.draw(world, camView);
+      }
+    }
 
     requestAnimationFrame(frame);
   }
@@ -533,11 +681,25 @@
       world.diffCfg = S.DIFFICULTY[world.diff];
     }
   });
+  buildTune();
   R.init(canvas);
   requestAnimationFrame(frame);
 
   // dev/QA hook: index.html?autostart=1&secs=6 jumps straight into a run
   var qs = new URLSearchParams(location.search);
+
+  // look knobs straight from the URL, so an exported URL replays a dialled look:
+  // index.html?stripeAlpha=0.4&veilAlpha=0.3&headDisc=0
+  var LKU = window.MineserpentRender.LOOK;
+  for (var kL in LKU) {
+    var vL = qs.get(kL);
+    if (vL === null) continue;
+    if (typeof LKU[kL] === 'boolean') LKU[kL] = vL === '1' || vL === 'true';
+    else {
+      var nL = parseFloat(vL);
+      if (nL === nL) LKU[kL] = nL;
+    }
+  }
   if (qs.get('autostart') === '1') {
     dom.difficulty.value = qs.get('difficulty') || 'classic';
     newRun();

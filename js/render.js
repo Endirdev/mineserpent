@@ -65,9 +65,13 @@
 
   // per-skin paint: the rim/stripe/head/boost colours only depend on the skin,
   // so shade() runs once per skin for the whole session instead of per snake
-  // per frame — ~150 string allocations a frame retired.
+  // per frame — ~150 string allocations a frame retired. The two number guards
+  // are for the shape lab: it moves stripeAlpha/rimAlpha at runtime, so a skin
+  // shaded under the old pair gets re-shaded once (two compares, no allocation).
   function skinPaint(skin, LK) {
-    if (!skin.paint) {
+    if (!skin.paint || skin.paintSA !== LK.stripeAlpha || skin.paintRA !== LK.rimAlpha) {
+      skin.paintSA = LK.stripeAlpha;
+      skin.paintRA = LK.rimAlpha;
       skin.paint = {
         rimPlayer: shadeAlpha(skin.a, 0.8, LK.rimAlpha),
         rimBot: shadeAlpha(skin.a, -0.5, LK.rimAlpha),
@@ -82,13 +86,22 @@
 
   // ------------------------------------------------------------- renderer
   var Render = {
-    // the look: one table of frozen paint settings, so the draw code reads them by
-    // name instead of scattering magic numbers through the strokes.
+    // the look: one table of paint settings, so the draw code reads them by name
+    // instead of scattering magic numbers through the strokes. The values below are
+    // the shipped look; the shape lab (press L in the page) mutates this table live,
+    // and the two that shade colours (stripeAlpha, rimAlpha) make skinPaint re-shade
+    // the skins that were cached under the old values.
     LOOK: {
       stripeAlpha: 0.86,  // glass: opacity of the b-stripe windows (1 = solid stripes,
                           //       0 = board shows fully through the windows)
-      bandMul: 1.35,      // stripe length: max(9, radius * bandMul); bigger = more glass
+      bandMul: 1.35,      // stripe length: max(9, radius * bandMul); bigger = more glass,
+                          //       and fewer antialiased dash edges per painted pixel
       rimAlpha: 0.79,     // dark rim around the opaque a segments
+      rimGrow: 5,         // halo width outside the body. 0 skips the rim stroke: the halo
+                          //       is 37% of the body-stroke cost at this width
+      glass: true,        // the b-stripe windows; false paints one solid tube (2 strokes,
+                          //       no dash, no translucent pass) and covered marks stop
+                          //       reading through the body
       veilAlpha: 0.1,     // ghost of covered marks drawn over the snakes; 0 = stripes only
       washRevealed: 0.09, // revealed-cell tint
       washFlag: 0.06,     // flagged-cell tint
@@ -106,6 +119,14 @@
     vignette: null,
     vignetteBitmap: null,
     paints: null,
+
+    // the wash/cursor strings are built from LOOK at boot; the shape lab moves LOOK
+    // at runtime, so it re-derives them here. Four strings per slider move, never
+    // per frame. (stripeAlpha/rimAlpha are the per-skin paints' job, guarded in
+    // skinPaint, and the rest of LOOK is read live by the draw code.)
+    refreshPaints: function () {
+      this.paints = buildPaints(this.LOOK);
+    },
 
     init: function (canvas) {
       this.canvas = canvas;
@@ -574,22 +595,32 @@
         // two alternating dash phases instead of solid body + stripes over it: the
         // a segments (rim included) are opaque and hide the board, the b stripes are
         // translucent windows so minesweeper marks under the snake read through them,
-        // dimmed by the stripe colour — genuinely "from behind"
+        // dimmed by the stripe colour — genuinely "from behind".
+        // The body is where the frame cost lives (46% of the worst one, 71% of a
+        // normal one) and the cost tracks painted area, so the shape is a knob the
+        // player can move: rimGrow 0 skips the halo stroke, glass false paints one
+        // solid tube. Both defaults, 5 px and true, keep the shipped strokes.
         var band = Math.round(Math.max(9, r * LK.bandMul) * 10) / 10;   // 0.1px step: matches the dash cache
+        var halo = LK.glass ? LK.rimGrow : 0;
         ctx.save();
         ctx.lineCap = 'butt';
-        ctx.setLineDash(this.dashFor(band));
+        if (LK.glass) ctx.setLineDash(this.dashFor(band));
+        else ctx.setLineDash([]);
         ctx.lineDashOffset = 0;
-        ctx.lineWidth = 2 * r + 5;
-        ctx.strokeStyle = s2.player ? paint.rimPlayer : paint.rimBot;
-        ctx.stroke();
+        if (halo > 0) {
+          ctx.lineWidth = 2 * r + halo;
+          ctx.strokeStyle = s2.player ? paint.rimPlayer : paint.rimBot;
+          ctx.stroke();
+        }
         ctx.lineWidth = 2 * r;
         ctx.strokeStyle = s2.skin.a;
         ctx.stroke();
-        ctx.lineDashOffset = band;    // half a period over: fills exactly the gaps
-        ctx.lineWidth = 2 * r;
-        ctx.strokeStyle = paint.stripe;
-        ctx.stroke();
+        if (LK.glass) {
+          ctx.lineDashOffset = band;    // half a period over: fills exactly the gaps
+          ctx.lineWidth = 2 * r;
+          ctx.strokeStyle = paint.stripe;
+          ctx.stroke();
+        }
         ctx.restore();
 
         // the head is the exception to the lattice, unless the knob turns it off

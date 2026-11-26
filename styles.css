@@ -166,3 +166,26 @@ input:focus, select:focus { outline: 2px solid rgba(123, 255, 176, 0.4); }
   #digbtn, #flagbtn { display: block; }
   #hud-foot span { display: none; }
 }
+
+/* ---------------------------------------------------------------- dev tuning panel
+   DEV ONLY — delete this block with buildTune/toggleTune when shipping the look. */
+.tune {
+  position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+  width: 340px; padding: 10px 14px 12px;
+  border: 1px solid var(--edge); border-radius: 12px;
+  background: rgba(8, 14, 30, 0.74); color: var(--dim);
+  font-size: 11px; z-index: 6;
+}
+.tune .thead { text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+.tune .trow { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.tune .tlbl { width: 86px; letter-spacing: 0.04em; }
+.tune .tval { width: 38px; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tune .tcost { color: var(--acid); font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+.tune input[type=range] {
+  flex: 1; height: 18px; padding: 0; background: none; border: 0;
+  accent-color: var(--acid);
+}
+.tune .tmsg { margin-top: 6px; }
+.tune .tout { margin-top: 4px; font-size: 10px; white-space: pre-wrap; word-break: break-all; }
+button.texp { width: 100%; padding: 8px; font-weight: 700; }
+.tune.tune-off { display: none; }

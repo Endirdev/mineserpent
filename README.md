@@ -109,6 +109,7 @@ node tools/bench-draw.mjs --baseline   # re-record; also prints frame p50/p95/ma
 node tools/bench-pass.mjs              # what each pass of a frame is worth, both cameras
 node tools/pixel-diff.mjs . 9e21ae7    # two painters, one scene: how many pixels moved
 node tools/bench-pacing.mjs --simhz=144  # frame pacing emulating a 144Hz display
+node tools/bench-pass.mjs --look glass=false,veilAlpha=0  # price a dialled look
 ```
 
 Reading the render benches needs three facts about how they run:
@@ -245,6 +246,40 @@ scene, same sitting, and none of them beat it.
   `drawSweeperOverlay` pass off, retiring its **6.2 ms (10%)** of the worst frame, and
   covered marks then read only through the body's stripe windows — a look change, and
   not one this pass has taken.
+
+  What those knobs are worth, priced in one sitting against the shipped look
+  (`tools/bench-pass.mjs --look`), both cameras:
+
+  | look | worst draw | normal draw | snakes, worst |
+  | --- | --- | --- | --- |
+  | shipped (`rimGrow 5`, `glass` on, `veilAlpha 0.1`) | 68.9 ms | 10.9 ms | 31.0 ms |
+  | `rimGrow=0` — no halo stroke | 56.7 ms | 8.08 ms | 21.5 ms |
+  | `glass=false` — one solid tube, no dash, no stripe pass | 43.2 ms | — | 12.5 ms |
+  | `veilAlpha=0` — no mark veil over the bodies | 60.8 ms | 10.9 ms | 31.6 ms |
+  | `rimGrow=0,veilAlpha=0,bandMul=2.7` | 44.1 ms | — | 17.3 ms |
+  | `glass=false,veilAlpha=0` | — | 5.19 ms | 2.69 ms |
+
+  Absolute ms are this machine's software raster and drift ~10% between sittings, so
+  read them as shares of the shipped frame: dropping the halo retires a third of the
+  snake layer, going solid retires 60% of it, and the veil retires a tenth of the
+  frame on its own.
+
+### The shape lab
+
+Whether any of those looks is acceptable is a judgement about the picture, not a
+number, so the game page carries a dev panel for dialling it in: press **K** in a run
+to show it (K again hides it). One slider per `LOOK` knob — the seven that shade or
+shape the snakes first (`stripeAlpha`, `bandMul`, `rimAlpha`, `rimGrow`, `glass`,
+`veilAlpha`, `headDisc`), then the board's four — with the value shown beside each, a
+live **`draw ms/frame`** readout so the cost of the look follows the appearance, and an
+**Export look** button that writes the `LOOK` table back as typed (a `// was` comment
+marks what moved) for pasting, plus a URL that replays the same look in the page.
+`LOOK` starts at the shipped values, and the knobbed pass at those defaults is
+pixel-identical to the previous painter — `pixel-diff` reads max channel delta 0 — so
+the lab changes nothing until a slider moves. The panel is dev-only: the shape knobs,
+`buildTune`/`toggleTune`, the `k` keydown line, the `tuneOn` lines in the frame loop
+and the `.tune` CSS block are what to delete when the dialled look is shipped, as
+`git log` shows was done once before (`4b6117c`).
 
 ### Frame pacing
 
