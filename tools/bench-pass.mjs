@@ -101,7 +101,13 @@ for (const key of pick) {
       function statOf(a) {
         const s = [...a].sort((x, y) => x - y);
         const at = (p) => s[Math.min(s.length - 1, Math.floor(s.length * p))];
-        return { n: s.length, mean: s.reduce((x, y) => x + y, 0) / Math.max(1, s.length), p50: at(0.5), p95: at(0.95), max: s[s.length - 1] };
+        const mid = at(0.5);
+        // slow counts the frames more than twice the median: with a dozen samples
+        // p95 IS the max, so a single outlier looks like "the worst frame" and the
+        // count is what says whether the tail is real or one freak sample
+        return { n: s.length, mean: s.reduce((x, y) => x + y, 0) / Math.max(1, s.length),
+                 p50: mid, p95: at(0.95), max: s[s.length - 1],
+                 slow: s.filter((x) => x > 2 * mid).length };
       }
       const seq = ['background', 'grid', 'sweeper', 'boundary', 'food', 'snakes', 'overlay', 'effects', 'vignette'];
       function passes() {
@@ -114,7 +120,14 @@ for (const key of pick) {
           snakes: function () { worldSpace(); R.drawSnakes(ctx, w, left, top, right, bottom, zoom, 1); },
           overlay: function () { worldSpace(); R.drawSweeperOverlay(ctx, w, left, top, right, bottom, zoom); },
           effects: function () { worldSpace(); R.drawEffects(ctx, w, zoom); },
-          vignette: function () { screenSpace(); ctx.fillStyle = R.vignette; ctx.fillRect(0, 0, WW, HH); },
+          vignette: function () {
+            screenSpace();
+            // the painter blits the baked sheet; R.vignette is null once the bake
+            // shipped, and a fillStyle of null is ignored, which left this pass
+            // painting an opaque full-canvas rect of whatever colour was last set
+            if (R.vignetteBitmap) ctx.drawImage(R.vignetteBitmap, 0, 0);
+            else { ctx.fillStyle = R.vignette; ctx.fillRect(0, 0, WW, HH); }
+          },
         };
       }
       const P = passes();
@@ -145,9 +158,14 @@ for (const key of pick) {
       for (const n of seq) cost[n] = timeIt(P[n]) - floor;
 
       // whole frames, no flush between passes inside a frame; the flush after each
-      // one puts the deferred raster inside the sample, so p50/p95/max are honest
+      // one puts the deferred raster inside the sample, so p50/p95/max are honest.
+      // The warm-up frames are flushed too: Chromium defers 2D raster, so a warm-up
+      // frame that never gets flushed leaves its display list queued on the canvas
+      // and the FIRST timed flush realises the whole backlog - five unflushed warm
+      // frames made that first sample six frames of raster, ~220 ms against a 38 ms
+      // steady frame, which is the freak sample p95 and max used to be
       function frameOnce() {
-        for (let i = 0; i < 5; i++) frame();
+        for (let i = 0; i < 5; i++) { frame(); flush(); }
         const samples = [];
         for (let i = 0; i < ${frames}; i++) {
           const a = performance.now();
@@ -158,7 +176,7 @@ for (const key of pick) {
         return statOf(samples);
       }
       function drawOnce() {
-        for (let i = 0; i < 5; i++) R.draw(w, view);
+        for (let i = 0; i < 5; i++) { R.draw(w, view); flush(); }
         const samples = [];
         for (let i = 0; i < ${frames}; i++) {
           const a = performance.now();
@@ -253,7 +271,7 @@ for (const key of pick) {
   const px = out.devW * out.devH;
   const f = out.draw.mean;
   console.log(`== ${key} — ${out.WW}x${out.HH} dpr ${out.dpr} zoom ${out.zoom} camera ${VIEWS[key].camera} reveal ${VIEWS[key].reveal} | look ${out.look.length ? out.look.join(' ') : 'shipped'}${fidelity ? ' | fidelity ' + fidelity : ''}${out.playerPinned ? ' (scene pins the fattest snake as the player)' : ''} ==`);
-  console.log(`draw()            mean ${out.draw.mean.toFixed(3)}  p50 ${out.draw.p50.toFixed(2)}  p95 ${out.draw.p95.toFixed(2)}  max ${out.draw.max.toFixed(2)} ms`);
+  console.log(`draw()            mean ${out.draw.mean.toFixed(3)}  p50 ${out.draw.p50.toFixed(2)}  p95 ${out.draw.p95.toFixed(2)}  max ${out.draw.max.toFixed(2)} ms   frames over twice p50: ${out.draw.slow}/${out.draw.n}`);
   console.log(`this frame        mean ${out.frame.mean.toFixed(3)}  p50 ${out.frame.p50.toFixed(2)}  p95 ${out.frame.p95.toFixed(2)}  max ${out.frame.max.toFixed(2)} ms   (the pass order replicated here)`);
   for (const n of ['snakes', 'sweeper', 'overlay', 'food', 'vignette', 'boundary', 'grid', 'background', 'effects']) {
     const v = out.cost[n];

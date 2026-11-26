@@ -114,7 +114,7 @@ node tools/bench-pass.mjs --fidelity low    # price a shipped graphics level
 node tools/pixel-diff.mjs . . --view worst --look rimPlayerOnly=true  # what a look does to the picture
 ```
 
-Reading the render benches needs three facts about how they run:
+Reading the render benches needs four facts about how they run:
 
 - **Software raster.** They pass `--disable-gpu`, and headless Chrome builds no GL
   context at all, so absolute ms describe this machine, not your GPU. Only same-machine
@@ -131,6 +131,27 @@ Reading the render benches needs three facts about how they run:
   ~59 revealed cells land on the canvas, so a change whose cost grows with the opened
   board reads flat there; measure those with `tools/bench-pass.mjs --view worst` (1248
   revealed cells at zoom 0.40, which is also where the click hitch lives).
+- **A frame sample is only honest once its warm-up frames are flushed too.** Chromium
+  keeps the display lists of frames that were never flushed, so the first timed flush
+  realises the whole backlog: five unflushed warm-up frames make that first sample six
+  frames of raster, 219.7 ms against a 38 ms steady frame at the wide-open camera (8
+  warm frames read 336.6 ms, so the backlog is linear in what is queued). With a dozen
+  samples p95 *is* that sample, which is why the p95 and max columns of the older
+  `bench-pass` sittings said 200–330 ms while nothing in the game takes that long, and
+  why their means sit ~20% above p50. `bench-pass` now flushes its warm-ups, prints how
+  many frames sit over twice p50, and blits the baked vignette sheet the way the painter
+  does (`R.vignette` has been null since the bake shipped, so the pass used to paint an
+  opaque full-canvas rect). The honest worst-camera tail is a 39.2 ms p50, 42.7 ms p95,
+  44.3 ms max and 0/40 frames over twice p50.
+
+Nothing in the painter stutters. The real page at the same camera — 2560x1440, zoom 0.40
+with the whole board open, 1476 revealed cells — runs 1.4 ms of `draw` and 0.9 ms of `step`
+per frame; its rAF intervals sit at 33 ms (one dropped frame, 271 of 394) and 50 ms (two,
+90 of 394), max 50 ms. The limiter is Skia's raster of the translucent area — ~0.7 canvases
+of dashed strokes, 0.78 of wash, 0.13 of additive glow — which the compositor realises
+between frames, so a wide-open screen plays at 30 Hz rather than 60 and never hitches.
+The fidelity ladder is what moves that number: p50 frame 39.2 ms at High, 35.1 at Medium,
+26.0 at Low.
 
 `tools/pixel-diff.mjs` is what makes a painter change safe: both painters render the
 same pinned scene in one page, since a screenshot of two runs is not comparable — the
