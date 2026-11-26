@@ -459,7 +459,8 @@
       rimGrow: [0, 12, 0.5], glass: [0, 1, 1], rimPlayerOnly: [0, 1, 1],
       glassPlayerOnly: [0, 1, 1], veilAlpha: [0, 0.8], veilPlayerOnly: [0, 1, 1], headDisc: [0, 1, 1],
       washRevealed: [0, 0.3], washFlag: [0, 0.3], washMine: [0, 0.5],
-      cursorAlpha: [0, 1], numScale: [0.15, 0.8]
+      cursorAlpha: [0, 1], numScale: [0.15, 0.8],
+      spokes: [0, 8, 1], numMinPx: [0, 40, 2]
     };
     // only these four go through buildPaints, so only they need the strings re-derived
     var paints = { washRevealed: 1, washFlag: 1, washMine: 1, cursorAlpha: 1 };

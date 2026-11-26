@@ -121,6 +121,12 @@
       washMine: 0.16,     // exposed-mine tint
       cursorAlpha: 0.1,   // green cell cursor under the head
       numScale: 0.42,     // board numbers as a fraction of the cell
+      numMinPx: 0,        // skip the numbers when a cell is smaller than this many
+                          //       device px: 0 always draws them, and the cost they
+                          //       hold is 746 fillText glyphs at the wide-open camera
+      spokes: 8,          // spokes on an exposed mine, 0 keeps the disc and its rim:
+                          //       8 is the shipped asterisk, and every spoke is one
+                          //       antialiased subpath in the group's stroke
       headDisc: true,     // opaque head exception to the lattice (false = all stripes)
     },
 
@@ -275,7 +281,7 @@
     // marks are now gathered in one walk of the cells and the fills share a path,
     // while the thin strokes keep their own call: the software raster antialiases a
     // stroke batched with other cells' strokes on a wider edge than a lone one.
-    drawMarks: function (ctx, sw, lx0, lx1, ly0, ly1, c, wash, mask) {
+    drawMarks: function (ctx, sw, lx0, lx1, ly0, ly1, c, wash, mask, scalePx) {
       var lx, ly, i, wx, wy, fx, base, top2, mx, my, rr, a, k, n, run = 64;
       var len, k2, j;
       // one walk of the visible cells feeds every pass below: the window is wide
@@ -408,26 +414,34 @@
       ctx.stroke();
       ctx.beginPath();
       n = 0;
-      for (k = 0; k < MARK_MINE.length; k++) {
-        i = MARK_MINE[k];
-        lx = i % sw.w;
-        mx = (sw.ix0 + lx + 0.5) * c;
-        my = (sw.iy0 + (i - lx) / sw.w) * c + c / 2;
-        rr = c * 0.16;
-        for (a = 0; a < 8; a++) {
-          var ang = a * Math.PI / 4;
-          ctx.moveTo(mx + Math.cos(ang) * rr * 1.2, my + Math.sin(ang) * rr * 1.2);
-          ctx.lineTo(mx + Math.cos(ang) * rr * 1.85, my + Math.sin(ang) * rr * 1.85);
+      var spokeN = this.LOOK.spokes;
+      if (spokeN > 0) {
+        for (k = 0; k < MARK_MINE.length; k++) {
+          i = MARK_MINE[k];
+          lx = i % sw.w;
+          mx = (sw.ix0 + lx + 0.5) * c;
+          my = (sw.iy0 + (i - lx) / sw.w) * c + c / 2;
+          rr = c * 0.16;
+          for (a = 0; a < spokeN; a++) {
+            var ang = a * Math.PI * 2 / spokeN;
+            ctx.moveTo(mx + Math.cos(ang) * rr * 1.2, my + Math.sin(ang) * rr * 1.2);
+            ctx.lineTo(mx + Math.cos(ang) * rr * 1.85, my + Math.sin(ang) * rr * 1.85);
+          }
+          if (++n === run) { ctx.stroke(); ctx.beginPath(); n = 0; }
         }
-        if (++n === run) { ctx.stroke(); ctx.beginPath(); n = 0; }
+        ctx.stroke();
       }
-      ctx.stroke();
       // the numbers: the font is set once and the colour once per value, so the
-      // canvas resolves its paint eight times a frame instead of once per cell
+      // canvas resolves its paint eight times a frame instead of once per cell.
+      // numMinPx skips them below a legibility floor: 746 glyphs at ~5.6 us an
+      // op is most of the layer's cost at the wide-open camera, and at a cell
+      // under that floor the digits read as smudges anyway
+      var numOn = true;
+      if (this.LOOK.numMinPx > 0 && scalePx && c * scalePx < this.LOOK.numMinPx) numOn = false;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = '700 ' + Math.round(c * this.LOOK.numScale) + 'px system-ui, sans-serif';
-      for (var v = 1; v <= 8; v++) {
+      for (var v = 1; numOn && v <= 8; v++) {
         var bucket = MARK_NUM[v];
         if (!bucket.length) continue;
         ctx.fillStyle = NUM_TINT[v];
@@ -461,7 +475,7 @@
       ctx.beginPath();
       ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
       ctx.clip();
-      this.drawMarks(ctx, sw, lx0, lx1, ly0, ly1, c, true);
+      this.drawMarks(ctx, sw, lx0, lx1, ly0, ly1, c, true, null, zoom * this.dpr);
 
       // the cursor marks where a dig lands: the square under the pointer when one is
       // about, otherwise the head's square (keys and touch buttons dig where you are)
@@ -535,7 +549,7 @@
       ctx.arc(0, 0, world.radius, 0, Math.PI * 2);
       ctx.clip();
       ctx.globalAlpha = this.LOOK.veilAlpha;
-      this.drawMarks(ctx, sw, lx0, lx1, ly0, ly1, c, false, mask);
+      this.drawMarks(ctx, sw, lx0, lx1, ly0, ly1, c, false, mask, zoom * this.dpr);
       ctx.restore();
     },
 

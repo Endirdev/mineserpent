@@ -206,6 +206,24 @@ What bought that, in order of payoff:
   over whole regions. Note that `tools/bench-draw.mjs` reads this change as flat (8.4
   vs 8.4 ms) — its mid-play camera leaves only ~59 revealed cells on the canvas.
 
+- **What the marks layer is made of, and the cuts the lab offers.** With the High
+  default painting, `drawSweeper` at the wide-open camera is 11.2 ms over 1248
+  revealed cells, and the split by op kind (`bench-pass` now prints it) says: 327
+  wash rects 4.6 ms (41%), 746 number glyphs 3.3 ms, 211 mines' rims and spokes
+  2.9 ms, mine discs 1.0 ms. Ops match cost — 12.7 us a wash rect, 5.6 us a glyph —
+  so the layer is per-op bound and the exact routes are out: the digits cannot be
+  blitted from a cached sheet (11.84 → 14.4 ms in the earlier attempt) and the
+  washes are already one rect per row run. What pays is a look change, so it ships
+  as two `LOOK` knobs with lab rows (`spokes`, `numMinPx`), both defaulting to the
+  shipped shape: `spokes=0` takes a mine's asterisk to a ringed disc, 11.2 → **8.7 ms**
+  and 0.39% of pixels moved at the worst camera; `spokes=4` keeps a four-point mine,
+  10.2 ms, 0.20%; `numMinPx=56` skips the digits when a cell is under that many
+  device px — where a wide-open board's numbers read as smudges — 11.2 → **7.4 ms**,
+  1.8% of pixels at the worst camera and 0% at the normal one, where cells are 84 px
+  and the guard never fires. This is the layer a click repaints, so these are the
+  dig and chord hitch: the slice scales with revealed cells and the board never
+  stops costing something.
+
 ### Shapes that were measured and did not pay
 
 Paint is either a per-op cost or a raster cost, and which one a layer pays is not
@@ -354,7 +372,9 @@ number, so the game page carries a dev panel for dialling it in: press **K** in 
 to show it (K again hides it). One slider per `LOOK` knob — the ten that shade or
 shape the snakes first (`stripeAlpha`, `bandMul`, `rimAlpha`, `rimGrow`,
 `rimPlayerOnly`, `glass`, `glassPlayerOnly`, `veilAlpha`, `veilPlayerOnly`,
-`headDisc`), then the board's four — with the value shown beside each, a live
+`headDisc`), then the board's seven (`washRevealed`, `washFlag`, `washMine`,
+`cursorAlpha`, `numScale`, and the two marks cuts `spokes` and `numMinPx`) — with
+the value shown beside each, a live
 **`draw ms/frame`** readout so the cost of the look follows the appearance, and an
 **Export look** button that writes the `LOOK` table back as typed (a `// was` comment
 marks what moved) for pasting, plus a URL that replays the same look in the page.

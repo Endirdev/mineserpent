@@ -192,9 +192,28 @@ for (const key of pick) {
       const allBoost = timeIt(P.snakes) - floor;
       for (const s of w.snakes) s.boost = false;
 
+      // the sweeper layer splits by what kind of thing it paints: washes are whole
+      // cell rects, the mark glyphs are strokes and shared-path fills, and the
+      // numbers are one fillText per revealed cell. Stubs change the look: this
+      // measures shape, it is not a proposal.
+      const keepRect = ctx.fillRect, keepFill = ctx.fill;
+      ctx.fillRect = function () { };
+      const sweNoRect = timeIt(P.sweeper) - floor;
+      ctx.fillRect = keepRect;
+      ctx.stroke = function () { };
+      const sweNoStroke = timeIt(P.sweeper) - floor;
+      ctx.stroke = keepStroke;
+      ctx.fill = function () { };
+      const sweNoFill = timeIt(P.sweeper) - floor;
+      ctx.fill = keepFill;
+      ctx.fillText = function () { };
+      const sweNoText = timeIt(P.sweeper) - floor;
+      ctx.fillText = keepText;
+
       // how much of each pass's paint actually reaches the canvas
       const devW = WW * dpr, devH = HH * dpr;
       let cellsOn = 0, washPx = 0, pelletsOn = 0, glowPx = 0, corePx = 0, culled = 0;
+      let flagsOn = 0, minesOn = 0, numsOn = 0;
       const c = sw.cell * dpr * zoom;
       for (let i = 0; i < sw.w * sw.h; i++) {
         if (sw.state[i] === 0) continue;
@@ -202,6 +221,9 @@ for (const key of pick) {
         const dy = dpr * (HH / 2 - camY * zoom) + dpr * zoom * (sw.iy0 + Math.floor(i / sw.w)) * sw.cell;
         if (dx + c < 0 || dx > devW || dy + c < 0 || dy > devH) continue;
         cellsOn++;
+        if (sw.state[i] === 2) flagsOn++;
+        else if (sw.mine[i]) minesOn++;
+        if (!sw.mine[i] && sw.adj[i] > 0) numsOn++;
         washPx += c * c;
       }
       for (const f of w.food) {
@@ -217,7 +239,10 @@ for (const key of pick) {
       return { cost, sum, floor, frame: frameStats, draw: drawStats,
         snakes: { total: cost.snakes, body: cost.snakes - noStroke, face: cost.snakes - noFace,
                   label: cost.snakes - noText, head: cost.snakes - noHead, boost: allBoost - cost.snakes },
-        cellsOn, washPx, pelletsOn, culled, glowPx, corePx, devW, devH, dpr, WW, HH, zoom,
+        sweeperSplit: { total: cost.sweeper, wash: cost.sweeper - sweNoRect,
+                  strokes: cost.sweeper - sweNoStroke, sheets: cost.sweeper - sweNoFill,
+                  numbers: cost.sweeper - sweNoText },
+        cellsOn, washPx, flagsOn, minesOn, numsOn, pelletsOn, culled, glowPx, corePx, devW, devH, dpr, WW, HH, zoom,
         look: lookApplied,
         veilMask: (() => { let nq = 0; const gq = R._veilGrid; if (gq) for (let qc = 0; qc < gq.length; qc++) if (gq[qc]) nq++; return nq; })(),
         veilCells: (() => { const gq = R._veilGrid; return gq ? gq.length : 0; })(),
@@ -236,8 +261,10 @@ for (const key of pick) {
   }
   const s = out.snakes;
   console.log(`drawSnakes split: body strokes ${s.body.toFixed(3)} (${(s.body / s.total * 100).toFixed(0)}%) | head discs ${s.head.toFixed(3)} | face ${s.face.toFixed(3)} | nameplate ${s.label.toFixed(3)} | adding a boost glow to every snake +${s.boost.toFixed(2)}   (sub-splits under ~0.1 ms are at the instrument floor)`);
+  const sws = out.sweeperSplit;
+  console.log(`drawSweeper split: wash rects ${sws.wash.toFixed(3)} (${(sws.wash / sws.total * 100).toFixed(0)}%) | mark strokes ${sws.strokes.toFixed(3)} | glyph sheets ${sws.sheets.toFixed(3)} | numbers ${sws.numbers.toFixed(3)}   (the four overlap: a stubbed op retires what used it)`);
   console.log(`passes sum ${out.sum.toFixed(3)} ms (forced flush per pass, so this is not the frame)  |  readback floor ${out.floor.toFixed(3)} ms`);
-  console.log(`workload: ${out.cellsOn} revealed cells on canvas = ${(out.washPx / px).toFixed(2)} canvas of wash | ${out.pelletsOn} pellets painted, ${out.culled} culled = ${(out.glowPx / px).toFixed(2)} canvas of glow` +
+  console.log(`workload: ${out.cellsOn} revealed cells on canvas = ${(out.washPx / px).toFixed(2)} canvas of wash | ${out.flagsOn} flags, ${out.minesOn} exposed mines, ${out.numsOn} number glyphs | ${out.pelletsOn} pellets painted, ${out.culled} culled = ${(out.glowPx / px).toFixed(2)} canvas of glow` +
     (out.veilCells ? ` | veil mask covers ${out.veilMask} of ${out.veilCells} cells, so only the marks under your own body are ghosted` : ''));
   await browser.close();
   console.log('');
