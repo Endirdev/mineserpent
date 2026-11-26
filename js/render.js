@@ -104,6 +104,7 @@
     w: 0,
     h: 0,
     vignette: null,
+    vignetteBitmap: null,
     paints: null,
 
     init: function (canvas) {
@@ -124,11 +125,34 @@
       this.h = h;
       this.canvas.width = Math.round(w * dpr);
       this.canvas.height = Math.round(h * dpr);
-      // vignette is screen-space, so rebuild it whenever the canvas changes
-      var g = this.ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.34, w / 2, h / 2, Math.max(w, h) * 0.72);
+      // vignette is screen-space, so rebuild it whenever the canvas changes. It
+      // also never changes between frames, so it is baked once into a bitmap
+      // instead of being rasterised as a gradient over the whole canvas every
+      // frame: a radial-gradient fill costs several times a blit of the same
+      // pixels. The bake uses the same transform and the same shape as the
+      // painted fillRect, so the bitmap holds the pixels the fill used to
+      // produce and the blit below is a 1:1 copy of them: the sheets differ
+      // only by the 8-bit alpha the bitmap has to carry, max 2/255 per channel.
+      // It costs one more full-canvas buffer — the canvas memory doubles, 133 MB
+      // at a 4K HiDPI desktop — paid per resize.
+      this.vignetteBitmap = this.bakeVignette(w, h);
+      this.vignette = null;
+    },
+
+    bakeVignette: function (w, h) {
+      if (!global.document || w <= 0 || h <= 0) return null;
+      var sheet = global.document.createElement('canvas');
+      sheet.width = this.canvas.width;
+      sheet.height = this.canvas.height;
+      var c = sheet.getContext('2d');
+      var dpr = this.dpr;
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var g = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.34, w / 2, h / 2, Math.max(w, h) * 0.72);
       g.addColorStop(0, 'rgba(0,0,0,0)');
       g.addColorStop(1, 'rgba(2,4,12,0.62)');
-      this.vignette = g;
+      c.fillStyle = g;
+      c.fillRect(0, 0, w, h);
+      return sheet;
     },
 
     // view: { x, y, zoom, shakeX, shakeY, alpha (world fade for fades in/out),
@@ -161,10 +185,16 @@
       this.drawSweeperOverlay(ctx, world, left, top, right, bottom, zoom);
       this.drawEffects(ctx, world, zoom);
 
-      // ---- vignette (screen space)
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = this.vignette;
-      ctx.fillRect(0, 0, w, h);
+      // ---- vignette (screen space): one blit of the baked sheet, at the
+      // identity transform so it is a 1:1 copy of the pixels the fill made
+      if (this.vignetteBitmap) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(this.vignetteBitmap, 0, 0);
+      } else {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = this.vignette;
+        ctx.fillRect(0, 0, w, h);
+      }
     },
 
     drawGrid: function (ctx, world, left, top, right, bottom, zoom) {

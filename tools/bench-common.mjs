@@ -73,11 +73,11 @@ export const VIEWS = {
   worst: { w: 2560, h: 1440, zoom: 0.4, camera: 'center', reveal: 'full' },
 };
 
-export async function openPage(vw, vh) {
+export async function openPage(vw, vh, scale) {
   const browser = await puppeteer.launch({
     executablePath: chrome,
     headless: true,
-    args: ['--no-sandbox', '--window-size=' + vw + ',' + vh, '--disable-gpu', '--force-device-scale-factor=1'],
+    args: ['--no-sandbox', '--window-size=' + vw + ',' + vh, '--disable-gpu', '--force-device-scale-factor=' + (scale || 1)],
   });
   const tab = await browser.newPage();
   await tab.setViewport({ width: vw, height: vh });

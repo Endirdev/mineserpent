@@ -175,6 +175,17 @@ What bought that, in order of payoff:
   line, which moved the base by ~8% of a channel. Output is otherwise pixel-for-pixel
   the old painter — max channel delta 4/255, no pixel above 8 — and the layer alone
   goes 0.059 → **0.049 ms** on the fixed scene, frame ~10.8 → ~10.1 ms.
+- **Vignette bake.** The vignette is screen-space and static between resizes, but it
+  was rasterised as a radial-gradient fill over the whole canvas every frame: **8.36 ms
+  of a 81.7 ms worst-case frame** (2560×1440, zoom 0.40, whole board open) and 2.08 ms
+  of the 14.25 ms normal one. `resize()` now bakes it once into an offscreen sheet at
+  device resolution with the same transform and the same shape as the painted rect, and
+  the frame pays one 1:1 `drawImage` instead: **0.48 ms and 0.12 ms**, i.e. 8.4 ms and
+  2.1 ms of every frame retired. The sheets agree to max channel delta 2/255 everywhere
+  — all of it from the 8-bit alpha a bitmap has to carry — with nothing above 8, at both
+  dpr 1 and a forced dpr 2. It trades one more full-canvas buffer (the canvas memory
+  doubles; 133 MB at a 4K HiDPI desktop), paid per resize. Fixed-scene draw 10.58 →
+  **8.82 ms** in the same sitting.
 
 ### Frame pacing
 

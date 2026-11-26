@@ -20,6 +20,7 @@
  *   node tools/pixel-diff.mjs                       # working tree vs HEAD
  *   node tools/pixel-diff.mjs . 9e21ae7             # working tree vs a commit
  *   node tools/pixel-diff.mjs --view worst          # 2560x1440 zoom 0.40, all open
+ *   node tools/pixel-diff.mjs --dpr 2               # HiDPI: dpr 2 exercises the bake at device scale
  *   exit status 1 means a pixel moved by more than 8/255
  */
 import { SCENE, REVEAL_ALL, VIEW, VIEWS, openPage } from './bench-common.mjs';
@@ -29,10 +30,12 @@ import { execFileSync } from 'node:child_process';
 const FILE = 'js/render.js';
 
 let view = 'normal';
+let scale = 1;
 const refs = [];
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i];
   if (a === '--view') view = process.argv[++i];
+  else if (a === '--dpr') scale = Number(process.argv[++i]);
   else refs.push(a);
 }
 const refA = refs[0] || 'work';
@@ -47,7 +50,7 @@ const srcA = source(refA);
 const srcB = source(refB);
 const preset = VIEWS[view];
 
-const { browser, tab } = await openPage(preset.w, preset.h);
+const { browser, tab } = await openPage(preset.w, preset.h, scale);
 
 const out = await tab.evaluate(`
   (() => {
@@ -67,6 +70,13 @@ const out = await tab.evaluate(`
     ${srcB}
     const B = window.MineserpentRender;
     window.MineserpentRender = live;
+    // the game booted at the page's real dpr; ask for another one before the two
+    // renderers init, so a HiDPI bake is exercised at device scale
+    if (${scale} !== 1) {
+      try {
+        Object.defineProperty(window, 'devicePixelRatio', { get: () => ${scale}, configurable: true });
+      } catch (e) { }
+    }
     A.init(canvas);
     B.init(canvas);
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -157,7 +167,7 @@ const out = await tab.evaluate(`
       if (ea.length !== eb.length) { stateDiff.push(name + ' is called ' + ea.length + 'x by A but ' + eb.length + 'x by B'); continue; }
       for (let k = 0; k < ea.length; k++) if (ea[k] !== eb[k]) stateDiff.push(name + ' exit #' + (k + 1) + ': ' + fieldDiff(ea[k], eb[k]));
     }
-    return { selfDiff, selfMax, total, same, over0, over8, over40, max,
+    return { selfDiff, selfMax, total, same, over0, over8, over40, max, dprUsed: A.dpr,
       bbox: over0 ? [minX, minY, maxX, maxY] : null,
       worst: worstAt < 0 ? null : [worstAt % canvas.width, Math.floor(worstAt / canvas.width)],
       stateDiff, counts,
@@ -169,7 +179,7 @@ const out = await tab.evaluate(`
 
 await browser.close();
 
-console.log(`== ${view} — ${preset.w}x${preset.h} zoom ${preset.zoom} camera ${preset.camera} reveal ${preset.reveal} | A=${refA} B=${refB} (${FILE}) ==`);
+console.log(`== ${view} — ${preset.w}x${preset.h} at scale ${scale} (measured dpr ${out.dprUsed}) zoom ${preset.zoom} camera ${preset.camera} reveal ${preset.reveal} | A=${refA} B=${refB} (${FILE}) ==`);
 console.log(`scene: ${out.alive} snakes / ${out.segs} body pts, ${out.revealed} revealed / ${out.flags} flags`);
 if (out.selfDiff) {
   console.log(`purity guard FAILED: the same painter differs by ${out.selfDiff} px above 8 (max ${out.selfMax}) — the scene is not reproducible, so the numbers below are noise`);
