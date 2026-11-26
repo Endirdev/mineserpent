@@ -127,6 +127,17 @@
       spokes: 8,          // spokes on an exposed mine, 0 keeps the disc and its rim:
                           //       8 is the shipped asterisk, and every spoke is one
                           //       antialiased subpath in the group's stroke
+      glowMul: 2.1,       // a pellet's halo as a multiple of its own radius: 2.1 is
+                          //       the shipped disc, 1 leaves no glow outside the core
+                          //       and 0 paints no halo — the halo is the bigger half
+                          //       of the food layer (2.6 of 4.7 ms at the wide-open
+                          //       camera), because every one of them is an additive
+                          //       antialiased blend
+      glowMinPx: 0,       // skip a halo when the whole glow is under this many device
+                          //       px: 0 never skips. The pellets are 1.3–2.8 px across
+                          //       at the wide-open camera and 2.3–4.9 mid-play, so a
+                          //       floor of 8 cuts 18% of the layer where you are zoomed
+                          //       out and moves no pixel at all mid-play
       headDisc: true,     // opaque head exception to the lattice (false = all stripes)
     },
 
@@ -223,7 +234,7 @@
       this.drawGrid(ctx, world, left, top, right, bottom, zoom);
       this.drawSweeper(ctx, world, left, top, right, bottom, zoom);
       this.drawBoundary(ctx, world, zoom);
-      this.drawFood(ctx, world, left, top, right, bottom);
+      this.drawFood(ctx, world, left, top, right, bottom, zoom);
       this.drawSnakes(ctx, world, left, top, right, bottom, zoom, lp);
       this.drawSweeperOverlay(ctx, world, left, top, right, bottom, zoom);
       this.drawEffects(ctx, world, zoom);
@@ -575,18 +586,28 @@
       ctx.setLineDash([]);
     },
 
-    drawFood: function (ctx, world, left, top, right, bottom) {
+    drawFood: function (ctx, world, left, top, right, bottom, zoom) {
       var food = world.food;
+      // the halo is the bigger half of this layer and it is pure additive blend: a
+      // 5.9 px disc at alpha 0.1 costs the same per-op raster as the 2.8 px core
+      // under it, so glowMul shrinks it and glowMinPx drops it below a legibility
+      // floor, both in device px so the floor only fires where a halo is a smear.
+      // mul > 0 and lod = 0 keep the shipped shape and the shipped pixels exactly
+      var mul = this.LOOK.glowMul;
+      var lod = zoom ? this.LOOK.glowMinPx : 0;
+      var scale = this.dpr * zoom;
       ctx.globalCompositeOperation = 'lighter';
       for (var i = 0; i < food.length; i++) {
         var f = food[i];
         if (f.eaten) continue;
         if (f.x < left || f.x > right || f.y < top || f.y > bottom) continue;
         var idx = f.hue % FOOD_TINT.length;
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.r * 2.1, 0, Math.PI * 2);
-        ctx.fillStyle = FOOD_GLOW[idx];
-        ctx.fill();
+        if (mul > 0 && f.r * mul * 2 * scale >= lod) {
+          ctx.beginPath();
+          ctx.arc(f.x, f.y, f.r * mul, 0, Math.PI * 2);
+          ctx.fillStyle = FOOD_GLOW[idx];
+          ctx.fill();
+        }
         ctx.beginPath();
         ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
         ctx.fillStyle = FOOD_TINT[idx];

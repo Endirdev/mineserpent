@@ -110,7 +110,7 @@ for (const key of pick) {
           grid: function () { worldSpace(); R.drawGrid(ctx, w, left, top, right, bottom, zoom); },
           sweeper: function () { worldSpace(); R.drawSweeper(ctx, w, left, top, right, bottom, zoom); },
           boundary: function () { worldSpace(); R.drawBoundary(ctx, w, zoom); },
-          food: function () { worldSpace(); R.drawFood(ctx, w, left, top, right, bottom); },
+          food: function () { worldSpace(); R.drawFood(ctx, w, left, top, right, bottom, zoom); },
           snakes: function () { worldSpace(); R.drawSnakes(ctx, w, left, top, right, bottom, zoom, 1); },
           overlay: function () { worldSpace(); R.drawSweeperOverlay(ctx, w, left, top, right, bottom, zoom); },
           effects: function () { worldSpace(); R.drawEffects(ctx, w, zoom); },

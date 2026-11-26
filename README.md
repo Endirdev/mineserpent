@@ -224,6 +224,23 @@ What bought that, in order of payoff:
   dig and chord hitch: the slice scales with revealed cells and the board never
   stops costing something.
 
+- **What the food layer is made of, and the cuts the lab offers.** The pass is
+  4.5 ms of the 54.7 ms worst frame over 1287 pellets: 2574 arc/fill pairs at
+  0.61 us an op, and the same loop with every canvas op removed is 0.009 ms, so the
+  layer is entirely raster plus per-call setup — the walk itself costs nothing. Its
+  two discs split 2.6 ms halo against 1.9 ms core even though a halo is only 5.9
+  device px across here, because a halo is 4.4× the core's area and every one of
+  them is an antialiased additive blend on an opaque canvas. The halo is therefore
+  the whole lever, and it ships as two `LOOK` knobs with lab rows, both at the
+  shipped shape by default: `glowMinPx` skips a halo under a device-px floor,
+  `glowMul` shrinks one. A floor of 8 takes the pass to **3.8 ms** (0.47% of pixels
+  moved at the worst camera, 0.32% by more than 8/255, max delta 52) and leaves the
+  mid-play camera pixel-identical, max delta 0 at the same 0.95 ms — mid-play pellets
+  carry 9.4–20.6 px of halo, so the floor never reaches them. A floor of 12 takes it
+  to **1.9 ms** (1.96% of pixels worst, 0.25% and max delta 26 mid-play, 6% off the
+  mid-play pass), `glowMul=0` buys the same 2.0 ms at both cameras but moves 3.2% of
+  mid-play pixels, and a tight `glowMul=1.4` only retires 12%.
+
 ### Shapes that were measured and did not pay
 
 Paint is either a per-op cost or a raster cost, and which one a layer pays is not
@@ -234,9 +251,21 @@ scene, same sitting, and none of them beat it.
   **11.84 → ~14.4 ms** on the repo bench: a blit of a resampled bitmap costs more than
   `fillText` of a small glyph. Not retried.
 - **Batching the food pass.** Fully batched is slower at both cameras, **6.39 vs 4.31 ms**
-  worst and **1.22 vs 0.72 ms** normal. Its glow area is only **0.13 canvases** even at
-  the widest camera, so there is no area to trade and Chromium's per-call setup is what
-  the shipped 8-calls-per-pellet shape already keeps cheap.
+  worst and **1.22 vs 0.72 ms** normal — and re-probed against the eight fat paths
+  grouped by hue, **6.6 vs 4.7 ms**, same verdict. Its glow area is only **0.13 canvases**
+  even at the widest camera, so there is no area to trade and Chromium's per-call setup is
+  what the shipped 8-calls-per-pellet shape already keeps cheap.
+- **The food pass, blitted.** A per-hue offscreen sprite carrying both discs, at the
+  largest pellet's device size, reads **3.2 vs 4.5 ms**: one 12 px blit instead of six
+  calls does buy 30%, but it moves 1.98% of pixels by more than 8/255 at max delta 236
+  where the shipped pass moves none — every pellet resamples the sheet, and at these
+  sizes resampling is the whole picture. Keeping the shape means keeping the discs.
+- **The food pass without the additive blend.** Painting the same discs with
+  `source-over` instead of `lighter` retires 27% of the pass at the worst camera and
+  31% mid-play, but moves max delta 117: halos stack where pellets crowd, which is
+  also why removing one halo's contribution moves delta 89 pixels rather than the
+  26/255 a single halo would add. A blend change is not a knob the painter should
+  take quietly.
 - **The snake bodies, 46% of the worst-case frame and 71% of the normal one.** They are
   three thick dashed strokes per snake — rim at `2r + 5`, body at `2r`, the stripe at
   `2r` half a dash period over — so the question was whether the cost is per-stroke
@@ -357,7 +386,11 @@ lands on a known look even if the dev lab had dialled sliders.
   buys 3 ms more and moves a similar number of pixels, but that step takes the halo
   and the veil off the thing you are looking at. Low is the loud step (15.4% of
   pixels worst, 20.8% mid-play) and the big one: bots collapse to one solid tube and
-  the snake slice drops from 20.0 to 10.9 ms.
+  the snake slice drops from 20.0 to 10.9 ms. No level touches the pellet halo,
+  another 4.5 ms of the worst frame: `glowMinPx` and `glowMul` are the lab's for it,
+  and the cheapest honest cut there (`glowMinPx=8`, pixel-identical mid-play, 15% of
+  the pass for 0.47% of pixels at the wide-open camera) is a smaller trade than this
+  ladder takes, so it stays a dial and not a level.
 
 `tools/bench-pass.mjs` prices a level directly (`--fidelity low`, reading the table
 in js/main.js, published as `window.MineserpentFidelity`), and with neither flag it
@@ -373,8 +406,8 @@ to show it (K again hides it). One slider per `LOOK` knob — the ten that shade
 shape the snakes first (`stripeAlpha`, `bandMul`, `rimAlpha`, `rimGrow`,
 `rimPlayerOnly`, `glass`, `glassPlayerOnly`, `veilAlpha`, `veilPlayerOnly`,
 `headDisc`), then the board's seven (`washRevealed`, `washFlag`, `washMine`,
-`cursorAlpha`, `numScale`, and the two marks cuts `spokes` and `numMinPx`) — with
-the value shown beside each, a live
+`cursorAlpha`, `numScale`, and the two marks cuts `spokes` and `numMinPx`), then the
+field's two (`glowMul`, `glowMinPx`) — with the value shown beside each, a live
 **`draw ms/frame`** readout so the cost of the look follows the appearance, and an
 **Export look** button that writes the `LOOK` table back as typed (a `// was` comment
 marks what moved) for pasting, plus a URL that replays the same look in the page.
