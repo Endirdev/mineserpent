@@ -203,6 +203,49 @@ What bought that, in order of payoff:
   over whole regions. Note that `tools/bench-draw.mjs` reads this change as flat (8.4
   vs 8.4 ms) — its mid-play camera leaves only ~59 revealed cells on the canvas.
 
+### Shapes that were measured and did not pay
+
+Paint is either a per-op cost or a raster cost, and which one a layer pays is not
+guessable: each candidate below was measured against the shipped shape on the pinned
+scene, same sitting, and none of them beat it.
+
+- **Board numbers as cached glyph tiles.** Offscreen tiles plus `drawImage` read
+  **11.84 → ~14.4 ms** on the repo bench: a blit of a resampled bitmap costs more than
+  `fillText` of a small glyph. Not retried.
+- **Batching the food pass.** Fully batched is slower at both cameras, **6.39 vs 4.31 ms**
+  worst and **1.22 vs 0.72 ms** normal. Its glow area is only **0.13 canvases** even at
+  the widest camera, so there is no area to trade and Chromium's per-call setup is what
+  the shipped 8-calls-per-pellet shape already keeps cheap.
+- **The snake bodies, 46% of the worst-case frame and 71% of the normal one.** They are
+  three thick dashed strokes per snake — rim at `2r + 5`, body at `2r`, the stripe at
+  `2r` half a dash period over — so the question was whether the cost is per-stroke
+  overhead, dash tiling, path geometry, translucent blend, or the raster. It is the
+  raster, and every shape probe retired nothing at either camera:
+
+  | shape probe (worst / normal) | retired |
+  | --- | --- |
+  | batch each pass across snakes, grouped by width + paint | **−6%** (28.9 vs 27.2 ms worst, 6.84 vs 6.42 ms normal) — fewer, fatter paths lose the coalescing, same verdict as the food pass |
+  | dash pattern removed (solid strokes) | 1–2% (0.60 ms at worst, 0.11 at normal) |
+  | stripe made opaque | 1–4% (0.35 ms at worst, 0.07 at normal) |
+  | polyline points collapsed within a device pixel | 0–2% — and the workload has **zero** points closer than one device pixel, the body lattice is coarser than the raster |
+  | `Path2D` built once and stroked three times | ±2%, i.e. noise |
+  | marginal cost of each stroke | rim 10.1, body 9.3, stripe 9.0 ms worst — near-equal, so the cost tracks painted area |
+
+  Painted area is what the look dictates: ~0.7 canvases of stroke on screen at the
+  worst camera over ~2255 antialiased dash subpaths, and at ~40 ms per canvas that
+  raster is where the time goes. The one retirable item is the rim's interior, which
+  the body stroke paints over again (~33% of the slice), and it cannot be skipped here:
+  the context is created with `{ alpha: false }`, so a composite-behind op like
+  `destination-over` is a no-op against pixels that are already opaque. Clipping the
+  polylines to the window is not a lever either — 60% of the walked centreline is
+  offscreen at the normal camera yet costs nothing, because Skia discards offscreen
+  raster before it costs anything.
+
+  The look-coupled route is the veil: `LOOK.veilAlpha` at 0 turns the
+  `drawSweeperOverlay` pass off, retiring its **6.2 ms (10%)** of the worst frame, and
+  covered marks then read only through the body's stripe windows — a look change, and
+  not one this pass has taken.
+
 ### Frame pacing
 
 Fast frames are useless if the motion they show stutters. The simulation ticks at a
