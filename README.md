@@ -105,8 +105,30 @@ node test/bench.mjs                    # medians for two scenarios, vs the saved
 node test/bench.mjs --baseline         # re-record the baseline after a deliberate change
 node tools/bench-page.mjs              # real page in headless Chrome: step + draw per frame
 node tools/bench-draw.mjs              # painter-only: one fixed scene, 300 draws as a batch
+node tools/bench-draw.mjs --baseline   # re-record; also prints frame p50/p95/max
+node tools/bench-pass.mjs              # what each pass of a frame is worth, both cameras
+node tools/pixel-diff.mjs . 9e21ae7    # two painters, one scene: how many pixels moved
 node tools/bench-pacing.mjs --simhz=144  # frame pacing emulating a 144Hz display
 ```
+
+Reading the render benches needs two facts about how they run:
+
+- **Software raster.** They pass `--disable-gpu`, and headless Chrome builds no GL
+  context at all, so absolute ms describe this machine, not your GPU. Only same-machine
+  before/after counts mean something; the same code measured in two sittings drifts ~10%
+  (the fixed scene read 10.0–10.3 ms one session and 11.0–11.4 ms the next).
+- **Chromium defers 2D canvas work.** A frame or a pass measured on its own only times
+  the recording of its display list until a flush runs, so `bench-pass` forces a flush
+  (a 1x1 readback) per pass and per frame and calibrates the readback out. That is also
+  why `bench-pass`'s passes do not sum to its frame line, and why its frame line sits
+  above `bench-draw`'s batch mean: forcing flushes stops Chromium coalescing across
+  frames. The pass *shares* are the point; the absolute ms are not comparable across
+  benches.
+
+`tools/pixel-diff.mjs` is what makes a painter change safe: both painters render the
+same pinned scene in one page, since a screenshot of two runs is not comparable — the
+scene is only reproducible inside one page. It reports the purity guard, pixels above
+8/255, and what each pass leaves in the 2D context, which later passes inherit.
 
 `test/bench.mjs` measures a normal 90s Ruthless match and a *stress* board — everyone
 force-fed past 600 mass, bodies at the segment cap, the worst `world.step` ever sees:
